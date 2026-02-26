@@ -420,26 +420,29 @@ def generate_image():
         image_saved = False
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'image_{timestamp}.png'
-        filepath = IMAGES_DIR / filename
-        
+
         try:
-            # Access via candidates[0].content.parts (correct path based on working code)
-            for part in response.candidates[0].content.parts:
-                if part.text:
-                    logger.info(f"Text part found: {part.text[:100] if len(part.text) > 100 else part.text}")
-                
-                elif part.inline_data:
-                    logger.info("Image data found, saving...")
-                    image = Image.open(BytesIO(part.inline_data.data))
-                    image.save(str(filepath))
-                    image_saved = True
-                    logger.info(f"Image saved successfully to {filepath}")
-                    break
+            # Use a temporary directory for saving the image
+            with tempfile.TemporaryDirectory() as temp_dir:
+                filepath = os.path.join(temp_dir, filename)
+
+                # Access via candidates[0].content.parts (correct path based on working code)
+                for part in response.candidates[0].content.parts:
+                    if part.text:
+                        logger.info(f"Text part found: {part.text[:100] if len(part.text) > 100 else part.text}")
+
+                    elif part.inline_data:
+                        logger.info("Image data found, saving...")
+                        image = Image.open(BytesIO(part.inline_data.data))
+                        image.save(filepath)
+                        image_saved = True
+                        logger.info(f"Image saved successfully to {filepath}")
+                        break
         except Exception as part_error:
             logger.error(f"Error extracting image from response: {str(part_error)}")
             logger.error(traceback.format_exc())
             return jsonify({'error': f'Error processing Gemini response: {str(part_error)}'}), 500
-        
+
         if not image_saved:
             logger.error("No image generated in response")
             return jsonify({'error': 'No image generated in response. Check server logs for details.'}), 500
