@@ -13,6 +13,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import certifi
 import tempfile
+import shutil
 
 # LangChain and OpenAI imports
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -424,7 +425,7 @@ def generate_image():
         try:
             # Use a temporary directory for saving the image
             with tempfile.TemporaryDirectory() as temp_dir:
-                filepath = os.path.join(temp_dir, filename)
+                temp_filepath = os.path.join(temp_dir, filename)
 
                 # Access via candidates[0].content.parts (correct path based on working code)
                 for part in response.candidates[0].content.parts:
@@ -434,9 +435,16 @@ def generate_image():
                     elif part.inline_data:
                         logger.info("Image data found, saving...")
                         image = Image.open(BytesIO(part.inline_data.data))
-                        image.save(filepath)
+                        image.save(temp_filepath)
+
+                        # Move the image to the public directory
+                        public_dir = os.path.join(os.getcwd(), 'static', 'images')
+                        os.makedirs(public_dir, exist_ok=True)
+                        public_filepath = os.path.join(public_dir, filename)
+                        shutil.copy(temp_filepath, public_filepath)
+
                         image_saved = True
-                        logger.info(f"Image saved successfully to {filepath}")
+                        logger.info(f"Image saved successfully to {public_filepath}")
                         break
         except Exception as part_error:
             logger.error(f"Error extracting image from response: {str(part_error)}")
@@ -449,7 +457,7 @@ def generate_image():
         
         # Return the URL for serving (works for both local and deployed)
         # Use request.host_url to get the current domain
-        image_url = f'{request.host_url}images/{filename}'
+        image_url = f'{request.host_url}static/images/{filename}'
         
         request_time = time.time() - request_start
         logger.info(f"[/generate-image] Success in {request_time:.2f}s")
