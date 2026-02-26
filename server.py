@@ -12,6 +12,7 @@ from io import BytesIO
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import certifi
+import tempfile
 
 # LangChain and OpenAI imports
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
