@@ -1,0 +1,16 @@
+Flask==2.3.3
+flask-cors==4.0.0
+requests==2.32.5
+openai==2.21.0
+pymongo==4.16.0
+certifi==2024.12.14
+langchain==1.2.10
+langchain-community==0.4.1
+langchain-openai==1.1.0
+langchain-mongodb==0.11.0
+google==3.0.0
+google-genai==1.64.0
+google-generativeai==0.8.6
+pillow==12.1.1
+python-dotenv==1.0.0
+gunicorn==21.2.0

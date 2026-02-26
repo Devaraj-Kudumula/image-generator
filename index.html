@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Prompt to Image Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            color: #667eea;
+            font-size: 1.3em;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .helper-text {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            font-style: italic;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .image-container {
+            text-align: center;
+            margin-top: 20px;
+            min-height: 100px;
+        }
+
+        .generated-image {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-top: 20px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            color: #667eea;
+            font-size: 18px;
+            margin: 20px 0;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee;
+            border: 2px solid #fcc;
+            color: #c00;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .error.active {
+            display: block;
+        }
+
+        .success {
+            background: #efe;
+            border: 2px solid #cfc;
+            color: #060;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .success.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 AI Medical Image Generator</h1>
+
+        <!-- System Instruction Section -->
+        <div class="section">
+            <div class="section-title">System Instruction (How to Generate Prompts)</div>
+            <textarea id="systemInstruction" rows="8" placeholder="Enter system instruction here...">You are an elite medical visual prompt architect specializing in high-end USMLE and board-review medical illustrations.
+
+Your task is to transform the user's request into a realistic, natural, and highly detailed image-generation prompt suitable for professional medical illustration.
+
+Guidelines:
+• Maintain scientific accuracy at USMLE Step 1 / Step 2 CK level.
+• Write in natural descriptive language (not robotic bullet rules).
+• Create a visually vivid, clinically realistic scene.
+• Ensure the illustration feels professional, modern, and publication-quality.
+• Add missing high-yield pathophysiologic details when necessary.
+• Remove redundant or irrelevant user input.
+• Emphasize clarity of mechanism and clinical correlation.
+• Describe human subjects with subtle, realistic clinical findings (not exaggerated).
+• Mechanism diagrams should be precise, clean, and educational.
+• Ensure visual hierarchy: central clinical scene + clearly structured mechanism inset.
+• Preserve exam-recognition clarity while maintaining realism.
+• Avoid cartoon style, oversimplification, or dramatic exaggeration.
+• Keep labels concise but natural (not fragmented phrases).
+• Use white or neutral background unless medically inappropriate.
+• Focus on one core mechanism only.
+
+Output should read like a refined, publication-ready medical illustration brief — clear, elegant, detailed, and visually immersive.</textarea>
+        </div>
+
+        <!-- User Question Section -->
+        <div class="section">
+            <div class="section-title">Your Question / Medical Topic (Optional)</div>
+            <textarea id="userQuestion" rows="2" placeholder="e.g., Hand Anatomy, Acute Hemolytic Transfusion Reaction, Myocardial Infarction...">Hand Anatomy</textarea>
+            <button onclick="generatePrompt()" id="generatePromptBtn">Generate Image Prompt (Optional)</button>
+        </div>
+
+        <div class="loading" id="promptLoading">
+            <div class="spinner"></div>
+            <p>Generating prompt...</p>
+        </div>
+
+        <div class="error" id="promptError"></div>
+
+        <!-- Generated Prompt Section -->
+        <div class="section">
+            <div class="section-title">Image Generation Prompt (Editable)</div>
+            <div class="helper-text">✨ Tip: Generate a prompt above, paste your own, or edit any existing prompt below</div>
+            <textarea id="generatedPrompt" rows="6" placeholder="Enter or paste your image generation prompt here, or use 'Generate Image Prompt' button above..."></textarea>
+            <button onclick="generateImage()" id="generateImageBtn">Generate Image</button>
+        </div>
+
+        <div class="loading" id="imageLoading">
+            <div class="spinner"></div>
+            <p>Generating image...</p>
+        </div>
+
+        <div class="error" id="imageError"></div>
+        <div class="success" id="imageSuccess"></div>
+
+        <!-- Image Display Section -->
+        <div class="section">
+            <div class="section-title">Generated Image</div>
+            <div class="image-container" id="imageContainer">
+                <p style="color: #999;">Your generated image will appear here</p>
+            </div>
+            <div class="button-group">
+                <button onclick="downloadImage()" id="downloadBtn" style="display: none;">Download Image</button>
+            </div>
+        </div>
+
+        <!-- Suggest Changes Section -->
+        <div class="section">
+            <div class="section-title">Suggest Changes to Generated Image</div>
+            <textarea id="imageChanges" rows="4" placeholder="Describe the changes you want to make to the generated image..."></textarea>
+            <button onclick="suggestChanges()" id="suggestChangesBtn">Submit Changes</button>
+        </div>
+
+        <script>
+        let currentImageUrl = null;
+
+        async function generatePrompt() {
+            const systemInstruction = document.getElementById('systemInstruction').value;
+            const userQuestion = document.getElementById('userQuestion').value;
+            
+            if (!systemInstruction.trim()) {
+                showError('promptError', 'Please enter a system instruction');
+                return;
+            }
+            
+            if (!userQuestion.trim()) {
+                showError('promptError', 'Please enter your medical topic or question');
+                return;
+            }
+
+            const btn = document.getElementById('generatePromptBtn');
+            const loading = document.getElementById('promptLoading');
+            const errorDiv = document.getElementById('promptError');
+
+            btn.disabled = true;
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+
+            try {
+                const response = await fetch('/generate-prompt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        system_instruction: systemInstruction,
+                        user_question: userQuestion
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('generatedPrompt').value = data.prompt;
+                } else {
+                    showError('promptError', data.error || 'Failed to generate prompt');
+                }
+            } catch (error) {
+                showError('promptError', 'Error connecting to server: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        async function generateImage() {
+            const prompt = document.getElementById('generatedPrompt').value;
+            if (!prompt.trim()) {
+                showError('imageError', 'Please enter a prompt');
+                return;
+            }
+
+            const btn = document.getElementById('generateImageBtn');
+            const loading = document.getElementById('imageLoading');
+            const errorDiv = document.getElementById('imageError');
+            const successDiv = document.getElementById('imageSuccess');
+
+            btn.disabled = true;
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+            successDiv.classList.remove('active');
+
+            try {
+                const response = await fetch('/generate-image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayImage(data.image_url);
+                    showSuccess('imageSuccess', 'Image generated successfully!');
+                } else {
+                    showError('imageError', data.error || 'Failed to generate image');
+                }
+            } catch (error) {
+                showError('imageError', 'Error connecting to server: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        async function suggestChanges() {
+            const changes = document.getElementById('imageChanges').value;
+            const filename = currentImageUrl ? currentImageUrl.split('/').pop() : null;
+
+            if (!filename) {
+                showError('imageError', 'No image available to edit. Please generate an image first.');
+                return;
+            }
+
+            if (!changes.trim()) {
+                showError('imageError', 'Please describe the changes you want to make.');
+                return;
+            }
+
+            const btn = document.getElementById('suggestChangesBtn');
+            const loading = document.getElementById('imageLoading');
+            const errorDiv = document.getElementById('imageError');
+            const successDiv = document.getElementById('imageSuccess');
+
+            btn.disabled = true;
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+            successDiv.classList.remove('active');
+
+            try {
+                const response = await fetch('/edit-image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        filename: filename,
+                        changes: changes
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayImage(data.image_url);
+                    showSuccess('imageSuccess', 'Image updated successfully!');
+                } else {
+                    showError('imageError', data.error || 'Failed to update image');
+                }
+            } catch (error) {
+                showError('imageError', 'Error connecting to server: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+
+        function displayImage(imageUrl) {
+            currentImageUrl = imageUrl;
+            const container = document.getElementById('imageContainer');
+            container.innerHTML = `<img src="${imageUrl}" class="generated-image" alt="Generated Image">`;
+            document.getElementById('downloadBtn').style.display = 'inline-block';
+        }
+
+        function downloadImage() {
+            if (!currentImageUrl) return;
+
+            const link = document.createElement('a');
+            link.href = currentImageUrl;
+            link.download = `generated-image-${Date.now()}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function showError(elementId, message) {
+            const errorDiv = document.getElementById(elementId);
+            errorDiv.textContent = message;
+            errorDiv.classList.add('active');
+        }
+
+        function showSuccess(elementId, message) {
+            const successDiv = document.getElementById(elementId);
+            successDiv.textContent = message;
+            successDiv.classList.add('active');
+            setTimeout(() => {
+                successDiv.classList.remove('active');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
