@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import os
 import sys
@@ -12,8 +12,6 @@ from io import BytesIO
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import certifi
-import tempfile
-import shutil
 from dotenv import load_dotenv
 
 # LangChain and OpenAI imports
@@ -69,11 +67,20 @@ if google_api_key:
 else:
     logger.error("✗ Google API key not found!")
 
-# Create directory for generated images (served from static/images)
-logger.info("Creating images directory...")
+# Image storage: in-memory for serverless (Vercel has read-only filesystem)
+# Local dev can also write to static/images when writable
+IMAGE_STORE = {}  # filename -> bytes
 IMAGES_DIR = Path('static') / 'images'
-IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-logger.info(f"✓ Images directory ready: {IMAGES_DIR.resolve()}")
+IS_SERVERLESS = os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
+if IS_SERVERLESS:
+    logger.info("Serverless environment detected; using in-memory image store only")
+else:
+    try:
+        IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(f"✓ Images directory ready: {IMAGES_DIR.resolve()}")
+    except OSError as e:
+        logger.warning(f"Images directory not writable ({e}); using in-memory store only")
+        IS_SERVERLESS = True
 
 # Initialize LLM
 logger.info("Initializing LLM...")
@@ -426,35 +433,32 @@ def generate_image():
         logger.info(f"Gemini API response received in {api_time:.2f}s")
         logger.info("Extracting image...")
         
-        # Extract image from response (matching working notebook code)
+        # Extract image from response; store in memory (serverless-safe) and optionally on disk
         image_saved = False
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'image_{timestamp}.png'
 
         try:
-            # Use a temporary directory for saving the image
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_filepath = os.path.join(temp_dir, filename)
-
-                # Access via candidates[0].content.parts (correct path based on working code)
-                for part in response.candidates[0].content.parts:
-                    if part.text:
-                        logger.info(f"Text part found: {part.text[:100] if len(part.text) > 100 else part.text}")
-
-                    elif part.inline_data:
-                        logger.info("Image data found, saving...")
-                        image = Image.open(BytesIO(part.inline_data.data))
-                        image.save(temp_filepath)
-
-                        # Move the image to the public directory
-                        public_dir = os.path.join(os.getcwd(), 'static', 'images')
-                        os.makedirs(public_dir, exist_ok=True)
-                        public_filepath = os.path.join(public_dir, filename)
-                        shutil.copy(temp_filepath, public_filepath)
-
-                        image_saved = True
-                        logger.info(f"Image saved successfully to {public_filepath}")
-                        break
+            for part in response.candidates[0].content.parts:
+                if part.text:
+                    logger.info(f"Text part found: {part.text[:100] if len(part.text) > 100 else part.text}")
+                elif part.inline_data:
+                    logger.info("Image data found, saving...")
+                    image = Image.open(BytesIO(part.inline_data.data))
+                    buf = BytesIO()
+                    image.save(buf, format='PNG')
+                    image_bytes = buf.getvalue()
+                    IMAGE_STORE[filename] = image_bytes
+                    if not IS_SERVERLESS:
+                        try:
+                            IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+                            (IMAGES_DIR / filename).write_bytes(image_bytes)
+                            logger.info(f"Image saved to disk: {IMAGES_DIR / filename}")
+                        except OSError:
+                            pass
+                    image_saved = True
+                    logger.info(f"Image stored (in-memory); filename={filename}")
+                    break
         except Exception as part_error:
             logger.error(f"Error extracting image from response: {str(part_error)}")
             logger.error(traceback.format_exc())
@@ -465,8 +469,7 @@ def generate_image():
             return jsonify({'error': 'No image generated in response. Check server logs for details.'}), 500
         
         # Return the URL for serving (works for both local and deployed)
-        # Use request.host_url to get the current domain
-        image_url = f'{request.host_url}static/images/{filename}'
+        image_url = f'{request.host_url}images/{filename}'
         
         request_time = time.time() - request_start
         logger.info(f"[/generate-image] Success in {request_time:.2f}s")
@@ -490,10 +493,19 @@ def generate_image():
 @app.route('/images/<filename>')
 def serve_image(filename):
     """
-    Serve generated images
+    Serve generated images from in-memory store or, if not found, from static dir (local).
     """
     logger.info(f"Serving image: {filename}")
-    return send_from_directory(IMAGES_DIR.resolve(), filename)
+    if filename in IMAGE_STORE:
+        return send_file(
+            BytesIO(IMAGE_STORE[filename]),
+            mimetype='image/png',
+            as_attachment=False,
+            download_name=filename
+        )
+    if not IS_SERVERLESS and (IMAGES_DIR / filename).exists():
+        return send_from_directory(IMAGES_DIR.resolve(), filename)
+    return jsonify({'error': 'Image not found'}), 404
 
 
 @app.route('/edit-image', methods=['POST'])
@@ -529,23 +541,17 @@ def edit_image():
             logger.error("Gemini client not initialized")
             return jsonify({'error': 'Gemini client not initialized'}), 500
 
-        # Check if the image exists
-        filepath = IMAGES_DIR / filename
-        if not filepath.exists():
-            logger.error(f"File not found: {filepath}")
+        # Load image from in-memory store or from disk (local only)
+        image = None
+        if filename in IMAGE_STORE:
+            image = Image.open(BytesIO(IMAGE_STORE[filename]))
+            logger.info(f"Editing image from store: {filename}")
+        elif not IS_SERVERLESS and (IMAGES_DIR / filename).exists():
+            image = Image.open(IMAGES_DIR / filename)
+            logger.info(f"Editing image from disk: {filename}")
+        if image is None:
+            logger.error(f"Image not found: {filename}")
             return jsonify({'error': f'File not found: {filename}'}), 404
-
-        logger.info(f"Editing image: {filepath}")
-
-        # # Open the existing image
-        # with open(filepath, 'rb') as image_file:
-        #     image_data = image_file.read()
-
-        # # Wrap the image data in the appropriate structure
-        # from gemini_sdk.models import File
-        # wrapped_image_data = File(data=image_data, filename=filename)
-
-        image = Image.open(filepath)
 
         # Generate a new image based on the existing image and changes
         logger.info("Calling Gemini API for image editing...")
@@ -564,48 +570,31 @@ def edit_image():
             logger.error(traceback.format_exc())
             return jsonify({'error': f'Error calling Gemini API: {str(api_error)}'}), 500
 
-        # Extract the new image from the response
+        # Extract the new image from the response; store in memory (serverless-safe)
         image_saved = False
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         new_filename = f'edited_{timestamp}.png'
-        new_filepath = IMAGES_DIR / new_filename
-
-        # Ensure the images directory exists
-        if not IMAGES_DIR.exists():
-            logger.warning(f"Images directory does not exist. Creating: {IMAGES_DIR}")
-            IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Log the full path where the image will be saved
-        logger.info(f"Attempting to save image to path: {new_filepath}")
 
         try:
-
             for part in response.candidates[0].content.parts:
                 if part.text:
                     logger.info(f"Text part found: {part.text[:100] if len(part.text) > 100 else part.text}")
-                
                 elif part.inline_data:
-                    logger.info("Image data found, saving...")
+                    logger.info("Edited image data found, storing...")
                     image = Image.open(BytesIO(part.inline_data.data))
-                    image.save(str(filepath))
+                    buf = BytesIO()
+                    image.save(buf, format='PNG')
+                    IMAGE_STORE[new_filename] = buf.getvalue()
+                    if not IS_SERVERLESS:
+                        try:
+                            IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+                            (IMAGES_DIR / new_filename).write_bytes(IMAGE_STORE[new_filename])
+                            logger.info(f"Edited image saved to disk: {IMAGES_DIR / new_filename}")
+                        except OSError:
+                            pass
                     image_saved = True
-                    logger.info(f"Image saved successfully to {filepath}")
+                    logger.info(f"Edited image stored; filename={new_filename}")
                     break
-            for part in response.candidates[0].content.parts:
-                if part.inline_data is not None:
-                    logger.info("Edited image data found, saving...")
-                    try:
-                        image = Image.open(BytesIO(part.inline_data.data))
-                        # image.verify()  # Verify image integrity
-                        # image = Image.open(BytesIO(part.inline_data))  # Reopen after verification
-                        image.save(str(new_filepath))
-                        image_saved = True
-                        logger.info(f"Edited image saved successfully to {new_filepath}")
-                        break
-                    except Exception as save_error:
-                        logger.error(f"Error saving image to path {new_filepath}: {str(save_error)}")
-                        logger.error(traceback.format_exc())
-                        return jsonify({'error': f'Error saving image: {str(save_error)}'}), 500
         except Exception as part_error:
             logger.error(f"Error extracting edited image from response: {str(part_error)}")
             logger.error(traceback.format_exc())
