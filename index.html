@@ -13,41 +13,113 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f3f4f6;
             min-height: 100vh;
-            padding: 20px;
+            padding: 20px 24px 28px;
+            color: #0f172a;
         }
 
         .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
+            width: 100%;
+            max-width: 100%;
+            margin: 0;
+            background: #ffffff;
             border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 20px 24px 26px;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+            border: 1px solid #e5e7eb;
+        }
+
+        .app-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .title-group {
+            flex: 1;
+            min-width: 0;
         }
 
         h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-            font-size: 2.5em;
+            color: #111827;
+            margin-bottom: 6px;
+            font-size: 2.4rem;
+            letter-spacing: -0.03em;
+        }
+
+        .subtitle {
+            color: #4b5563;
+            font-size: 0.98rem;
+            max-width: 640px;
+        }
+
+        .header-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            background: rgba(59, 130, 246, 0.08);
+            color: #1d4ed8;
+            border: 1px solid rgba(59, 130, 246, 0.5);
+        }
+
+        .badge-neutral {
+            background: rgba(148, 163, 184, 0.08);
+            border-color: rgba(148, 163, 184, 0.6);
+            color: #4b5563;
+        }
+
+        .app-main {
+            display: block;
+            margin-top: 12px;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 2.6fr) minmax(0, 2.2fr);
+            gap: 24px;
+            align-items: flex-start;
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
 
         .section {
-            margin-bottom: 30px;
+            background: #f9fafb;
+            border-radius: 16px;
+            padding: 16px 18px 18px;
+            border: 1px solid #e5e7eb;
+            box-shadow: none;
         }
 
         .section-title {
-            color: #667eea;
-            font-size: 1.3em;
-            margin-bottom: 10px;
+            color: #111827;
+            font-size: 0.95rem;
+            margin-bottom: 6px;
             font-weight: 600;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
         }
 
         .helper-text {
-            color: #666;
-            font-size: 0.9em;
+            color: #6b7280;
+            font-size: 0.83rem;
             margin-bottom: 10px;
             font-style: italic;
         }
@@ -55,35 +127,48 @@
         textarea {
             width: 100%;
             padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            font-size: 0.94rem;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             resize: vertical;
-            transition: border-color 0.3s;
+            transition: border-color 0.18s, box-shadow 0.18s, background-color 0.18s;
+            background: #ffffff;
+            color: #111827;
+            min-height: 60px;
+        }
+
+        textarea::placeholder {
+            color: #6b7280;
         }
 
         textarea:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.7), 0 0 0 8px rgba(129, 140, 248, 0.18);
+            background: #ffffff;
         }
 
         button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 45%, #0ea5e9 100%);
+            color: #f9fafb;
             border: none;
-            padding: 15px 30px;
-            font-size: 16px;
-            border-radius: 10px;
+            padding: 11px 22px;
+            font-size: 0.9rem;
+            border-radius: 999px;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.16s ease-out, box-shadow 0.16s ease-out, filter 0.12s ease-out, opacity 0.12s ease-out;
             font-weight: 600;
             margin-top: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
         }
 
         button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 5px 20px rgba(99, 102, 241, 0.35);
         }
 
         button:active {
@@ -98,29 +183,74 @@
 
         .button-group {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             margin-top: 10px;
         }
 
-        .image-container {
-            text-align: center;
-            margin-top: 20px;
-            min-height: 100px;
+        .conversation-container {
+            margin-top: 12px;
+            min-height: 140px;
+            max-height: calc(100vh - 340px);
+            overflow-y: auto;
+            padding-right: 8px;
         }
 
-        .generated-image {
+        .message-row {
+            display: flex;
+            margin-bottom: 12px;
+        }
+
+        .message-row.user {
+            justify-content: flex-end;
+        }
+
+        .message-row.assistant {
+            justify-content: flex-start;
+        }
+
+        .message-bubble {
+            max-width: 84%;
+            border-radius: 16px;
+            padding: 10px 14px;
+            box-shadow: 0 10px 32px rgba(15, 23, 42, 0.12);
+        }
+
+        .message-bubble.user {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 40%, #0ea5e9 100%);
+            color: #f9fafb;
+        }
+
+        .message-bubble.assistant {
+            background: #f3f4f6;
+            color: #111827;
+            box-shadow: none;
+        }
+
+        .message-text {
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+        }
+
+        .message-image {
             max-width: 100%;
             border-radius: 10px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            margin-top: 20px;
+            margin-top: 10px;
+        }
+
+        .message-meta {
+            font-size: 0.78rem;
+            color: #6b7280;
+            margin-top: 6px;
         }
 
         .loading {
             display: none;
             text-align: center;
-            color: #667eea;
-            font-size: 18px;
-            margin: 20px 0;
+            color: #4b5563;
+            font-size: 0.9rem;
+            margin: 16px 0 6px;
         }
 
         .loading.active {
@@ -128,13 +258,13 @@
         }
 
         .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            border: 3px solid rgba(148, 163, 184, 0.3);
+            border-top: 3px solid #38bdf8;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
+            width: 32px;
+            height: 32px;
+            animation: spin 0.9s linear infinite;
+            margin: 0 auto 10px;
         }
 
         @keyframes spin {
@@ -143,13 +273,14 @@
         }
 
         .error {
-            background: #fee;
-            border: 2px solid #fcc;
-            color: #c00;
-            padding: 15px;
-            border-radius: 10px;
+            background: rgba(248, 113, 113, 0.06);
+            border: 1px solid rgba(248, 113, 113, 0.7);
+            color: #b91c1c;
+            padding: 10px 12px;
+            border-radius: 12px;
             margin-top: 10px;
             display: none;
+            font-size: 0.83rem;
         }
 
         .error.active {
@@ -157,29 +288,319 @@
         }
 
         .success {
-            background: #efe;
-            border: 2px solid #cfc;
-            color: #060;
-            padding: 15px;
-            border-radius: 10px;
+            background: rgba(22, 163, 74, 0.06);
+            border: 1px solid rgba(34, 197, 94, 0.7);
+            color: #166534;
+            padding: 10px 12px;
+            border-radius: 12px;
             margin-top: 10px;
             display: none;
+            font-size: 0.83rem;
         }
 
         .success.active {
             display: block;
         }
+
+        .chat-session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .chat-image-count {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .chat-session-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .chat-session-select {
+            padding: 7px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.7);
+            font-size: 0.82rem;
+            min-width: 160px;
+            background: #ffffff;
+            color: #111827;
+        }
+
+        .chat-session-button {
+            padding: 7px 12px;
+            font-size: 0.8rem;
+        }
+
+        .image-preview-card {
+            border-radius: 14px;
+            background: linear-gradient(to bottom right, rgba(59, 130, 246, 0.05), rgba(249, 250, 251, 1));
+            padding: 10px 10px 12px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .image-preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        .image-preview-title {
+            font-size: 0.88rem;
+            font-weight: 500;
+            color: #111827;
+        }
+
+        .image-preview-meta {
+            font-size: 0.76rem;
+            color: #6b7280;
+        }
+
+        .image-preview-placeholder {
+            font-size: 0.8rem;
+            color: #9ca3af;
+        }
+
+        .image-preview-image {
+            width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+            display: none;
+            cursor: zoom-in;
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .image-preview-image.visible {
+            display: block;
+        }
+
+        .image-preview-image.visible:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 22px 40px rgba(15, 23, 42, 0.26);
+        }
+
+        .image-preview-empty {
+            border-radius: 10px;
+            border: 1px dashed rgba(148, 163, 184, 0.6);
+            padding: 12px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #9ca3af;
+        }
+
+        .image-preview-empty.hidden {
+            display: none;
+        }
+
+        .field-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .field-row textarea {
+            flex: 1;
+            min-width: 220px;
+        }
+
+        .field-row button {
+            margin-top: 0;
+        }
+
+        .field-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .field-label span {
+            font-size: 0.8rem;
+            color: #9ca3af;
+        }
+
+        /* Fullscreen image overlay */
+        .image-fullscreen-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            z-index: 50;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.18s ease;
+        }
+
+        .image-fullscreen-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .image-fullscreen-inner {
+            max-width: 1200px;
+            width: 100%;
+            max-height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            transform: translateY(6px);
+            transition: transform 0.2s ease;
+        }
+
+        .image-fullscreen-overlay.active .image-fullscreen-inner {
+            transform: translateY(0);
+        }
+
+        .image-fullscreen-image {
+            max-width: 100%;
+            max-height: calc(100vh - 120px);
+            border-radius: 18px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65);
+            background: #020617;
+        }
+
+        .image-fullscreen-caption {
+            font-size: 0.85rem;
+            color: #e5e7eb;
+            text-align: center;
+        }
+
+        .image-fullscreen-close {
+            position: fixed;
+            top: 18px;
+            right: 22px;
+            border-radius: 999px;
+            border: none;
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.75);
+            color: #e5e7eb;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.7);
+            cursor: pointer;
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        .image-fullscreen-close:hover {
+            background: rgba(15, 23, 42, 0.95);
+        }
+
+        @media (max-width: 1200px) {
+            .layout {
+                grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.6fr);
+            }
+        }
+
+        @media (max-width: 960px) {
+            body {
+                padding: 16px;
+            }
+
+            .container {
+                padding: 16px 14px 18px;
+                border-radius: 18px;
+            }
+
+            .app-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .header-meta {
+                flex-direction: row;
+                flex-wrap: wrap;
+                align-items: center;
+            }
+
+            .layout {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .conversation-container {
+                max-height: 320px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            h1 {
+                font-size: 1.7rem;
+            }
+
+            .subtitle {
+                font-size: 0.9rem;
+            }
+
+            .section {
+                padding: 14px 12px 16px;
+            }
+
+            textarea {
+                font-size: 0.88rem;
+            }
+
+            button {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .field-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .field-row button {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎨 AI Medical Image Generator</h1>
+        <header class="app-header">
+            <div class="title-group">
+                <h1>🎨 AI Medical Image Generator</h1>
+                <p class="subtitle">
+                    Design exam-ready medical illustrations from natural language. Shape a precise prompt, generate images,
+                    and iterate safely with a clear visual history.
+                </p>
+            </div>
+            <div class="header-meta">
+                <span class="badge">Clinical &amp; USMLE-focused</span>
+                <span class="badge badge-neutral">Gemini-powered imaging</span>
+            </div>
+        </header>
 
-        <!-- System Instruction Section -->
-        <div class="section">
-            <div class="section-title">System Instruction (How to Generate Prompts)</div>
-            <textarea id="systemInstruction" rows="8" placeholder="Enter system instruction here...">You are an elite medical visual prompt architect specializing in high-end USMLE and board-review medical illustrations.
-
+        <main class="app-main">
+            <div class="layout">
+                <!-- Primary column: authoring + refinement -->
+                <div class="column">
+                    <!-- System Instruction Section -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">System Instruction (How prompts are crafted)</div>
+                            <span>Typically set once per session</span>
+                        </div>
+                        <textarea id="systemInstruction" rows="8" placeholder="Enter system instruction here...">You are an elite medical visual prompt architect specializing in high-end USMLE and board-review medical illustrations.
+                
 Your task is to transform the user's request into a realistic, natural, and highly detailed image-generation prompt suitable for professional medical illustration.
 
 Guidelines:
@@ -200,58 +621,260 @@ Guidelines:
 • Focus on one core mechanism only.
 
 Output should read like a refined, publication-ready medical illustration brief — clear, elegant, detailed, and visually immersive.</textarea>
-        </div>
+                    </div>
 
-        <!-- User Question Section -->
-        <div class="section">
-            <div class="section-title">Your Question / Medical Topic (Optional)</div>
-            <textarea id="userQuestion" rows="2" placeholder="e.g., Hand Anatomy, Acute Hemolytic Transfusion Reaction, Myocardial Infarction...">Hand Anatomy</textarea>
-            <button onclick="generatePrompt()" id="generatePromptBtn">Generate Image Prompt (Optional)</button>
-        </div>
+                    <!-- User Question Section -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Your Question / Medical Topic</div>
+                            <span>Optional, but improves context</span>
+                        </div>
+                        <div class="field-row">
+                            <textarea id="userQuestion" rows="2" placeholder="e.g., Hand Anatomy, Acute Hemolytic Transfusion Reaction, Myocardial Infarction...">Hand Anatomy</textarea>
+                            <button onclick="generatePrompt()" id="generatePromptBtn">
+                                Generate image prompt
+                            </button>
+                        </div>
+                        <div class="helper-text">Use this to translate a topic or vignette into a polished illustration brief.</div>
+                        <div class="loading" id="promptLoading">
+                            <div class="spinner"></div>
+                            <p>Generating prompt…</p>
+                        </div>
+                        <div class="error" id="promptError"></div>
+                    </div>
 
-        <div class="loading" id="promptLoading">
-            <div class="spinner"></div>
-            <p>Generating prompt...</p>
-        </div>
+                    <!-- Generated Prompt Section -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Image Generation Prompt (Editable)</div>
+                            <span>You can fully edit this before generating</span>
+                        </div>
+                        <div class="helper-text">Tip: Start from the generated prompt above, paste your own, or refine an existing brief.</div>
+                        <textarea id="generatedPrompt" rows="6" placeholder="Enter or paste your image generation prompt here, or use 'Generate image prompt' above..."></textarea>
+                        <div class="button-group">
+                            <button onclick="generateImage()" id="generateImageBtn">
+                                Generate image
+                            </button>
+                        </div>
+                    </div>
 
-        <div class="error" id="promptError"></div>
+                    <!-- Suggest Changes Section -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Suggest Changes to Generated Image</div>
+                            <span>Iterate without rewriting your entire prompt</span>
+                        </div>
+                        <textarea id="imageChanges" rows="4" placeholder="Describe the changes you want to make to the generated image (e.g., zoom on lesion, adjust lighting, highlight a specific step)..."></textarea>
+                        <div class="button-group">
+                            <button onclick="suggestChanges()" id="suggestChangesBtn">
+                                Apply changes to latest image
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
-        <!-- Generated Prompt Section -->
-        <div class="section">
-            <div class="section-title">Image Generation Prompt (Editable)</div>
-            <div class="helper-text">✨ Tip: Generate a prompt above, paste your own, or edit any existing prompt below</div>
-            <textarea id="generatedPrompt" rows="6" placeholder="Enter or paste your image generation prompt here, or use 'Generate Image Prompt' button above..."></textarea>
-            <button onclick="generateImage()" id="generateImageBtn">Generate Image</button>
-        </div>
+                <!-- Secondary column: preview + chat history -->
+                <div class="column">
+                    <!-- Live image preview -->
+                    <div class="section">
+                        <div class="image-preview-card">
+                            <div class="image-preview-header">
+                                <div class="image-preview-title">Latest image preview</div>
+                                <div class="image-preview-meta" id="imagePreviewMeta">No image generated yet</div>
+                            </div>
+                            <div class="image-preview-empty" id="imagePreviewEmpty">
+                                Generate an image to see a large, pinned preview here. All versions are preserved in the conversation history below.
+                            </div>
+                            <img id="currentImagePreview" class="image-preview-image" alt="Latest generated medical illustration preview" />
+                        </div>
+                        <div class="loading" id="imageLoading">
+                            <div class="spinner"></div>
+                            <p>Generating image…</p>
+                        </div>
+                        <div class="error" id="imageError"></div>
+                        <div class="success" id="imageSuccess"></div>
+                    </div>
 
-        <div class="loading" id="imageLoading">
-            <div class="spinner"></div>
-            <p>Generating image...</p>
-        </div>
-
-        <div class="error" id="imageError"></div>
-        <div class="success" id="imageSuccess"></div>
-
-        <!-- Image Display Section -->
-        <div class="section">
-            <div class="section-title">Generated Image</div>
-            <div class="image-container" id="imageContainer">
-                <p style="color: #999;">Your generated image will appear here</p>
+                    <!-- Conversation / Image History Section -->
+                    <div class="section">
+                        <div class="chat-session-header">
+                            <div>
+                                <div class="section-title">Chat sessions</div>
+                                <div class="helper-text">Switch between independent explorations without losing context.</div>
+                                <div class="chat-image-count" id="chatImageCount">No images generated in this chat yet</div>
+                            </div>
+                            <div class="chat-session-controls">
+                                <select id="chatSelector" class="chat-session-select" onchange="handleChatChange(event)"></select>
+                                <button type="button" class="chat-session-button" onclick="startNewChat()">New chat</button>
+                            </div>
+                        </div>
+                        <div class="section-title" style="margin-top: 4px;">Conversation history</div>
+                        <div class="conversation-container" id="conversationContainer">
+                            <p style="color: #6b7280;">Your prompts and generated images will appear here.</p>
+                        </div>
+                        <div class="button-group">
+                            <button onclick="downloadImage()" id="downloadBtn" style="display: none;">
+                                Download latest image
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="button-group">
-                <button onclick="downloadImage()" id="downloadBtn" style="display: none;">Download Image</button>
-            </div>
-        </div>
+        </main>
 
-        <!-- Suggest Changes Section -->
-        <div class="section">
-            <div class="section-title">Suggest Changes to Generated Image</div>
-            <textarea id="imageChanges" rows="4" placeholder="Describe the changes you want to make to the generated image..."></textarea>
-            <button onclick="suggestChanges()" id="suggestChangesBtn">Submit Changes</button>
+        <!-- Fullscreen image overlay -->
+        <div id="imageFullscreenOverlay" class="image-fullscreen-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+            <button type="button" class="image-fullscreen-close" aria-label="Close full-screen image" onclick="closeImageFullscreen()">
+                &times;
+            </button>
+            <div class="image-fullscreen-inner" onclick="closeImageFullscreen()">
+                <img id="imageFullscreen" class="image-fullscreen-image" alt="Full-screen view of latest generated medical illustration" onclick="event.stopPropagation();" />
+                <div id="imageFullscreenCaption" class="image-fullscreen-caption">Latest generated image</div>
+            </div>
         </div>
 
         <script>
-        let currentImageUrl = null;
+        let chats = [];
+        let activeChatId = null;
+        let nextChatId = 1;
+        let nextMessageId = 1;
+
+        function createNewChat(name) {
+            const id = nextChatId++;
+            const chat = {
+                id,
+                name: name || `Chat ${id}`,
+                history: [],
+                currentImageUrl: null,
+                imageCount: 0
+            };
+            chats.push(chat);
+            activeChatId = id;
+            updateChatSelector();
+            renderConversation();
+            updateDownloadButtonVisibility();
+            updateChatImageCountDisplay();
+            return chat;
+        }
+
+        function getActiveChat() {
+            return chats.find(chat => chat.id === activeChatId) || null;
+        }
+
+        function getActiveChatImageCount() {
+            const chat = getActiveChat();
+            return chat && typeof chat.imageCount === 'number' ? chat.imageCount : 0;
+        }
+
+        function updateChatImageCountDisplay() {
+            const countEl = document.getElementById('chatImageCount');
+
+            if (!countEl) return;
+
+            const count = getActiveChatImageCount();
+            if (count === 0) {
+                countEl.textContent = 'No images generated in this chat yet';
+            } else if (count === 1) {
+                countEl.textContent = '1 image in this chat';
+            } else {
+                countEl.textContent = `${count} images in this chat`;
+            }
+        }
+
+        function updateChatSelector() {
+            const selector = document.getElementById('chatSelector');
+            if (!selector) return;
+
+            selector.innerHTML = '';
+
+            chats.forEach(chat => {
+                const option = document.createElement('option');
+                option.value = chat.id;
+                option.textContent = chat.name;
+                if (chat.id === activeChatId) {
+                    option.selected = true;
+                }
+                selector.appendChild(option);
+            });
+        }
+
+        function handleChatChange(event) {
+            const newId = Number(event.target.value);
+            if (!newId || newId === activeChatId) return;
+            activeChatId = newId;
+            renderConversation();
+            updateDownloadButtonVisibility();
+            updateChatImageCountDisplay();
+        }
+
+        function startNewChat() {
+            createNewChat();
+            const generatedPromptEl = document.getElementById('generatedPrompt');
+            const imageChangesEl = document.getElementById('imageChanges');
+            if (generatedPromptEl) generatedPromptEl.value = '';
+            if (imageChangesEl) imageChangesEl.value = '';
+        }
+
+        function addConversationEntry(entry) {
+            let chat = getActiveChat();
+            if (!chat) {
+                chat = createNewChat();
+            }
+            const newEntry = { id: nextMessageId++, ...entry };
+            chat.history.push(newEntry);
+            renderConversation();
+            return newEntry.id;
+        }
+
+        function renderConversation() {
+            const container = document.getElementById('conversationContainer');
+            if (!container) return;
+
+            const chat = getActiveChat();
+            const history = chat ? chat.history : [];
+
+            if (!history || history.length === 0) {
+                container.innerHTML = `<p style="color: #999;">Your prompts and generated images will appear here</p>`;
+                return;
+            }
+
+            container.innerHTML = '';
+
+            history.forEach(entry => {
+                const row = document.createElement('div');
+                row.className = `message-row ${entry.role === 'user' ? 'user' : 'assistant'}`;
+
+                const bubble = document.createElement('div');
+                bubble.className = `message-bubble ${entry.role === 'user' ? 'user' : 'assistant'}`;
+
+                if (entry.text) {
+                    const textEl = document.createElement('div');
+                    textEl.className = 'message-text';
+                    textEl.textContent = entry.text;
+                    bubble.appendChild(textEl);
+                }
+
+                if (entry.imageUrl) {
+                    const img = document.createElement('img');
+                    img.src = entry.imageUrl;
+                    img.className = 'message-image';
+                    img.alt = entry.type === 'edited_image' ? 'Edited image' : 'Generated image';
+                    bubble.appendChild(img);
+                }
+
+                if (entry.meta) {
+                    const metaEl = document.createElement('div');
+                    metaEl.className = 'message-meta';
+                    metaEl.textContent = entry.meta;
+                    bubble.appendChild(metaEl);
+                }
+
+                row.appendChild(bubble);
+                container.appendChild(row);
+            });
+
+            container.scrollTop = container.scrollHeight;
+        }
 
         async function generatePrompt() {
             const systemInstruction = document.getElementById('systemInstruction').value;
@@ -314,6 +937,12 @@ Output should read like a refined, publication-ready medical illustration brief 
             const errorDiv = document.getElementById('imageError');
             const successDiv = document.getElementById('imageSuccess');
 
+            addConversationEntry({
+                role: 'user',
+                text: prompt,
+                type: 'prompt'
+            });
+
             btn.disabled = true;
             loading.classList.add('active');
             errorDiv.classList.remove('active');
@@ -334,6 +963,12 @@ Output should read like a refined, publication-ready medical illustration brief 
 
                 if (response.ok) {
                     displayImage(data.image_url);
+                    addConversationEntry({
+                        role: 'assistant',
+                        imageUrl: data.image_url,
+                        type: 'image',
+                        meta: 'Generated image'
+                    });
                     showSuccess('imageSuccess', 'Image generated successfully!');
                 } else {
                     showError('imageError', data.error || 'Failed to generate image');
@@ -348,7 +983,8 @@ Output should read like a refined, publication-ready medical illustration brief 
 
         async function suggestChanges() {
             const changes = document.getElementById('imageChanges').value;
-            const filename = currentImageUrl ? currentImageUrl.split('/').pop() : null;
+            const currentUrl = getCurrentImageUrl();
+            const filename = currentUrl ? currentUrl.split('/').pop() : null;
 
             if (!filename) {
                 showError('imageError', 'No image available to edit. Please generate an image first.');
@@ -364,6 +1000,12 @@ Output should read like a refined, publication-ready medical illustration brief 
             const loading = document.getElementById('imageLoading');
             const errorDiv = document.getElementById('imageError');
             const successDiv = document.getElementById('imageSuccess');
+
+            addConversationEntry({
+                role: 'user',
+                text: changes,
+                type: 'edit_request'
+            });
 
             btn.disabled = true;
             loading.classList.add('active');
@@ -386,6 +1028,12 @@ Output should read like a refined, publication-ready medical illustration brief 
 
                 if (response.ok) {
                     displayImage(data.image_url);
+                    addConversationEntry({
+                        role: 'assistant',
+                        imageUrl: data.image_url,
+                        type: 'edited_image',
+                        meta: 'Edited image'
+                    });
                     showSuccess('imageSuccess', 'Image updated successfully!');
                 } else {
                     showError('imageError', data.error || 'Failed to update image');
@@ -399,17 +1047,40 @@ Output should read like a refined, publication-ready medical illustration brief 
         }
 
         function displayImage(imageUrl) {
-            currentImageUrl = imageUrl;
-            const container = document.getElementById('imageContainer');
-            container.innerHTML = `<img src="${imageUrl}" class="generated-image" alt="Generated Image">`;
-            document.getElementById('downloadBtn').style.display = 'inline-block';
+            let chat = getActiveChat();
+            if (!chat) {
+                chat = createNewChat();
+            }
+            chat.currentImageUrl = imageUrl;
+            chat.imageCount = (chat.imageCount || 0) + 1;
+
+            // Update pinned preview
+            const previewImg = document.getElementById('currentImagePreview');
+            const previewEmpty = document.getElementById('imagePreviewEmpty');
+            const previewMeta = document.getElementById('imagePreviewMeta');
+            if (previewImg) {
+                previewImg.src = imageUrl;
+                previewImg.classList.add('visible');
+            }
+            if (previewEmpty) {
+                previewEmpty.classList.add('hidden');
+            }
+            if (previewMeta) {
+                const now = new Date();
+                const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                previewMeta.textContent = `Updated ${timeLabel}`;
+            }
+
+            updateDownloadButtonVisibility();
+            updateChatImageCountDisplay();
         }
 
         function downloadImage() {
-            if (!currentImageUrl) return;
+            const currentUrl = getCurrentImageUrl();
+            if (!currentUrl) return;
 
             const link = document.createElement('a');
-            link.href = currentImageUrl;
+            link.href = currentUrl;
             link.download = `generated-image-${Date.now()}.png`;
             document.body.appendChild(link);
             link.click();
@@ -430,6 +1101,64 @@ Output should read like a refined, publication-ready medical illustration brief 
                 successDiv.classList.remove('active');
             }, 3000);
         }
+
+        function getCurrentImageUrl() {
+            const chat = getActiveChat();
+            return chat ? chat.currentImageUrl : null;
+        }
+
+        function updateDownloadButtonVisibility() {
+            const downloadBtn = document.getElementById('downloadBtn');
+            if (!downloadBtn) return;
+            const hasImage = !!getCurrentImageUrl();
+            downloadBtn.style.display = hasImage ? 'inline-block' : 'none';
+        }
+
+        function openImageFullscreen() {
+            const imageUrl = getCurrentImageUrl();
+            if (!imageUrl) return;
+
+            const overlay = document.getElementById('imageFullscreenOverlay');
+            const img = document.getElementById('imageFullscreen');
+            const caption = document.getElementById('imageFullscreenCaption');
+
+            if (!overlay || !img) return;
+
+            img.src = imageUrl;
+            if (caption) {
+                caption.textContent = 'Full-screen view of latest generated image';
+            }
+
+            overlay.classList.add('active');
+            overlay.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeImageFullscreen() {
+            const overlay = document.getElementById('imageFullscreenOverlay');
+            if (!overlay) return;
+            overlay.classList.remove('active');
+            overlay.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+        }
+
+        // Initialize with a default chat session and set up image interactions
+        createNewChat('Chat 1');
+
+        const previewImg = document.getElementById('currentImagePreview');
+        if (previewImg) {
+            previewImg.addEventListener('click', () => {
+                if (previewImg.classList.contains('visible')) {
+                    openImageFullscreen();
+                }
+            });
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeImageFullscreen();
+            }
+        });
     </script>
 </body>
 </html>
