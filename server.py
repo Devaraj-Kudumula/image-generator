@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 import certifi
 import tempfile
 import shutil
+from dotenv import load_dotenv
 
 # LangChain and OpenAI imports
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -45,6 +46,14 @@ CORS(app)
 
 logger.info("Flask app and CORS initialized")
 
+# Load environment variables from .env file if present
+env_path = Path('.env')
+if env_path.exists():
+    logger.info(f"Loading environment variables from {env_path.resolve()}")
+    load_dotenv(env_path)
+else:
+    logger.info(".env file not found; relying on system environment variables")
+
 # Configure API keys
 logger.info("Checking API keys...")
 openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -60,11 +69,11 @@ if google_api_key:
 else:
     logger.error("✗ Google API key not found!")
 
-# Create directory for generated images
+# Create directory for generated images (served from static/images)
 logger.info("Creating images directory...")
-IMAGES_DIR = Path('generated_images')
-IMAGES_DIR.mkdir(exist_ok=True)
-logger.info(f"✓ Images directory ready: {IMAGES_DIR}")
+IMAGES_DIR = Path('static') / 'images'
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+logger.info(f"✓ Images directory ready: {IMAGES_DIR.resolve()}")
 
 # Initialize LLM
 logger.info("Initializing LLM...")
@@ -632,8 +641,10 @@ if __name__ == '__main__':
     logger.info("="*60)
     logger.info("AI Prompt to Image Generator Server")
     logger.info("="*60)
-    logger.info("IMPORTANT: Make sure to set your OpenAI API key:")
-    logger.info("  export OPENAI_API_KEY='your-api-key-here'")
+    logger.info("IMPORTANT: Make sure to create a .env file with your API keys, for example:")
+    logger.info("  OPENAI_API_KEY=your-openai-api-key")
+    logger.info("  GOOGLE_GENERATIVE_AI_API_KEY=your-gemini-api-key")
+    logger.info("The server will automatically load environment variables from .env if present.")
     
     # Use PORT environment variable for deployment, default to 5001 for local
     port = int(os.environ.get('PORT', 5001))
