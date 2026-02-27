@@ -61,7 +61,7 @@ This app lets you turn clinical ideas into exam‑ready medical illustrations. I
    - Uses `google.genai` client with `model="gemini-3-pro-image-preview"`.
    - Calls `gemini_client.models.generate_content(contents=[prompt])`.
    - Extracts `inline_data` from the first candidate’s parts and decodes it into an image.
-   - Saves the image as `static/images/image_<timestamp>.png`.
+   - Stores the image (in-memory on serverless, or also under `static/images/image_<timestamp>.png` when writable).
 3. **Output**:
    - JSON: `{ "image_url": "<full URL>", "filename": "<filename>", "success": true }`.
    - The UI:
@@ -77,10 +77,10 @@ This app lets you turn clinical ideas into exam‑ready medical illustrations. I
    - `filename`: the last generated/edited image filename (the UI derives this from the current image URL).
    - `changes`: natural‑language description of what you want to change (e.g., zoom, labels, lighting, focus, mechanism tweaks).
 2. **Backend flow**:
-   - Loads the existing image from `static/images/<filename>`.
+   - Loads the existing image from the server (in-memory store or `static/images/<filename>` when available).
    - Builds a prompt: `"Edit the following image based on the requested changes:\n\nChanges: <changes>"`.
    - Calls `gemini_client.models.generate_content(contents=[prompt, image])` to condition on both the instructions and the original image.
-   - Extracts a new image from the response and saves it as `static/images/edited_<timestamp>.png`.
+   - Extracts a new image from the response and stores it (in-memory and optionally as `static/images/edited_<timestamp>.png`).
 3. **Output**:
    - JSON: `{ "image_url": "<new URL>", "filename": "<new filename>", "success": true }`.
    - The UI:
@@ -109,9 +109,9 @@ All endpoints are implemented in `server.py`:
 - **`GET /`**: Serves `index.html`.
 - **`GET /health`**: Returns health/status JSON (API keys, MongoDB connectivity, retriever state, etc.).
 - **`POST /generate-prompt`**: Generates image prompts via OpenAI with optional RAG.
-- **`POST /generate-image`**: Generates an image from a prompt via Gemini and saves it under `static/images`.
-- **`POST /edit-image`**: Edits an existing image via Gemini and saves a new edited file.
-- **`GET /images/<filename>`**: Serves generated and edited images from `static/images`.
+- **`POST /generate-image`**: Generates an image from a prompt via Gemini; stores in memory (and optionally under `static/images` when the filesystem is writable).
+- **`POST /edit-image`**: Edits an existing image via Gemini and stores the new image (in-memory and optionally on disk).
+- **`GET /images/<filename>`**: Serves generated and edited images from the in-memory store or, locally, from `static/images`.
 
 ---
 
@@ -224,8 +224,10 @@ python server.py
   - Do not deploy `.env` files; rely on platform‑level environment variable configuration.
 - **Server binding**:
   - `server.py` binds to `0.0.0.0` and reads the `PORT` env var, which is compatible with most PaaS providers.
-- **Static assets**:
-  - Generated/edited images are stored under `static/images/` and served via `/static/images/...` or `/images/<filename>`.
+- **Image storage (serverless-friendly)**:
+  - On Vercel (or when the filesystem is read-only), images are stored **in memory** and served via `GET /images/<filename>`. No disk writes.
+  - Locally, images are also written to `static/images/` when writable. The same `/images/<filename>` endpoint serves from memory first, then from disk.
+  - Image URLs returned by the API use the `/images/<filename>` path so they work in both environments.
 
 This README should give you the full picture from **system prompt design → RAG prompt generation → Gemini image creation → iterative image editing**, plus how to configure and run the app safely with API keys in `.env`.
 
