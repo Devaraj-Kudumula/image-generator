@@ -196,12 +196,12 @@ try:
         # Create retriever
         retriever = vectorstore.as_retriever(
             search_type="similarity",
-            search_kwargs={"k": 3}
+            search_kwargs={"k": 10}
         )
         
         load_time = time.time() - start_time
         logger.info(f"✓ MongoDB vectorstore loaded successfully in {load_time:.2f}s")
-        logger.info(f"✓ Retriever configured: similarity search with k=3")
+        logger.info(f"✓ Retriever configured: similarity search with k=10")
         
 except Exception as e:
     logger.error(f"✗ Failed to initialize MongoDB vectorstore: {str(e)}")
@@ -316,7 +316,7 @@ def generate_prompt():
                         logger.error(f"Retriever invoke error: {str(e)}")
                         raise
                 
-                with ThreadPoolExecutor(max_workers=1) as executor:
+                with ThreadPoolExecutor(max_workers=5) as executor:
                     future = executor.submit(retrieve_docs)
                     try:
                         docs = future.result(timeout=20)  # 20 second timeout for cold starts
@@ -340,10 +340,10 @@ def generate_prompt():
                     Retrieved High-Yield Medical Context:
                     {context}
                     
-                    User Request:
+                    User Question:
                     {user_question}
                     
-                    Return a complete structured image generation prompt following the system instruction guidelines.
+                    Return a complete structured and detailed image generation prompt following the system instruction guidelines.
                 """
                 
                 logger.info("Generating prompt with RAG context...")
