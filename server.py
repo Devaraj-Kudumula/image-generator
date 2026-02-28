@@ -355,6 +355,18 @@ def generate_prompt():
                 generated_prompt = response.content.strip()
                 logger.info(f"✓ Generated prompt with RAG ({len(generated_prompt)} chars)")
                 
+                # Include RAG pipeline details for the frontend
+                chunks_payload = [
+                    {"content": doc.page_content, "metadata": getattr(doc, "metadata", {}) or {}}
+                    for doc in docs
+                ]
+                return jsonify({
+                    'prompt': generated_prompt,
+                    'success': True,
+                    'search_query': retrieval_query,
+                    'chunks': chunks_payload,
+                })
+                
             except Exception as e:
                 logger.warning(f"⚠ RAG failed ({str(e)}), falling back to direct generation")
                 logger.warning(traceback.format_exc())
@@ -379,9 +391,12 @@ def generate_prompt():
         logger.info(f"[/generate-prompt] Success in {request_time:.2f}s")
         logger.info("="*50)
         
+        # Non-RAG path: no search query or chunks
         return jsonify({
             'prompt': generated_prompt,
-            'success': True
+            'success': True,
+            'search_query': None,
+            'chunks': [],
         })
     
     except Exception as e:

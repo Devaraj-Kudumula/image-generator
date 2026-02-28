@@ -237,6 +237,13 @@
             border-radius: 10px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             margin-top: 10px;
+            cursor: zoom-in;
+            transition: box-shadow 0.18s ease, transform 0.18s ease;
+        }
+
+        .message-image:hover {
+            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+            transform: translateY(-1px);
         }
 
         .message-meta {
@@ -300,6 +307,168 @@
 
         .success.active {
             display: block;
+        }
+
+        /* RAG pipeline details: collapsible, non-intrusive */
+        .rag-details-wrapper {
+            margin-top: 14px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            background: #fafbfc;
+            overflow: hidden;
+        }
+
+        .rag-details {
+            font-size: 0.9rem;
+        }
+
+        .rag-details-summary {
+            list-style: none;
+            padding: 12px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-weight: 600;
+            color: #374151;
+            user-select: none;
+        }
+
+        .rag-details-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .rag-details-summary::after {
+            content: '▼';
+            font-size: 0.7rem;
+            color: #6b7280;
+            transition: transform 0.2s ease;
+        }
+
+        .rag-details[open] .rag-details-summary::after {
+            transform: rotate(-180deg);
+        }
+
+        .rag-details-title {
+            letter-spacing: 0.02em;
+        }
+
+        .rag-details-badge {
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.2);
+            color: #64748b;
+        }
+
+        .rag-details-inner {
+            padding: 0 14px 14px;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .rag-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #6b7280;
+            margin-bottom: 6px;
+            margin-top: 12px;
+        }
+
+        .rag-label:first-child {
+            margin-top: 12px;
+        }
+
+        .rag-query-text {
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            color: #111827;
+            font-size: 0.88rem;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .rag-chunks-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .rag-chunk-item {
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            overflow: hidden;
+        }
+
+        .rag-chunk-summary {
+            padding: 10px 12px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: #374151;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .rag-chunk-summary:hover {
+            background: #f9fafb;
+        }
+
+        .rag-chunk-summary::after {
+            content: '▶';
+            font-size: 0.7rem;
+            color: #9ca3af;
+            flex-shrink: 0;
+        }
+
+        .rag-chunk-item[open] .rag-chunk-summary::after {
+            content: '▼';
+        }
+
+        .rag-chunk-preview {
+            color: #6b7280;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .rag-chunk-content {
+            padding: 10px 12px 12px;
+            border-top: 1px solid #f3f4f6;
+            font-size: 0.84rem;
+            line-height: 1.5;
+            color: #374151;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .rag-no-data {
+            font-size: 0.83rem;
+            color: #9ca3af;
+            font-style: italic;
+            margin-top: 12px;
+            padding: 8px 0;
+        }
+
+        .rag-no-data.hidden {
+            display: none;
+        }
+
+        .rag-search-query-block.hidden,
+        .rag-chunks-block.hidden {
+            display: none;
         }
 
         .chat-session-header {
@@ -585,7 +754,6 @@
             </div>
             <div class="header-meta">
                 <span class="badge">Clinical &amp; USMLE-focused</span>
-                <span class="badge badge-neutral">Gemini-powered imaging</span>
             </div>
         </header>
 
@@ -641,6 +809,27 @@ Output should read like a refined, publication-ready medical illustration brief 
                             <p>Generating prompt…</p>
                         </div>
                         <div class="error" id="promptError"></div>
+
+                        <!-- RAG pipeline details: search query + retrieved chunks (collapsible) -->
+                        <div class="rag-details-wrapper" id="ragDetailsWrapper">
+                            <details class="rag-details" id="ragDetails">
+                                <summary class="rag-details-summary">
+                                    <span class="rag-details-title">Search & retrieved context</span>
+                                    <span class="rag-details-badge" id="ragDetailsBadge"></span>
+                                </summary>
+                                <div class="rag-details-inner">
+                                    <div class="rag-search-query-block" id="ragSearchQueryBlock">
+                                        <div class="rag-label">Search query (LLM-derived)</div>
+                                        <div class="rag-query-text" id="ragSearchQueryText"></div>
+                                    </div>
+                                    <div class="rag-chunks-block" id="ragChunksBlock">
+                                        <div class="rag-label">Retrieved chunks (<span id="ragChunksCount">0</span>)</div>
+                                        <div class="rag-chunks-list" id="ragChunksList"></div>
+                                    </div>
+                                    <p class="rag-no-data" id="ragNoData">Generate a prompt above to see search query and retrieved context when RAG is used.</p>
+                                </div>
+                            </details>
+                        </div>
                     </div>
 
                     <!-- Generated Prompt Section -->
@@ -914,6 +1103,7 @@ Output should read like a refined, publication-ready medical illustration brief 
 
                 if (response.ok) {
                     document.getElementById('generatedPrompt').value = data.prompt;
+                    updateRagDetails(data.search_query, data.chunks || [], true);
                 } else {
                     showError('promptError', data.error || 'Failed to generate prompt');
                 }
@@ -923,6 +1113,64 @@ Output should read like a refined, publication-ready medical illustration brief 
                 btn.disabled = false;
                 loading.classList.remove('active');
             }
+        }
+
+        function updateRagDetails(searchQuery, chunks, fromRun) {
+            const wrapper = document.getElementById('ragDetailsWrapper');
+            const searchBlock = document.getElementById('ragSearchQueryBlock');
+            const queryText = document.getElementById('ragSearchQueryText');
+            const chunksBlock = document.getElementById('ragChunksBlock');
+            const chunksCountEl = document.getElementById('ragChunksCount');
+            const chunksList = document.getElementById('ragChunksList');
+            const noData = document.getElementById('ragNoData');
+            const badge = document.getElementById('ragDetailsBadge');
+
+            if (!wrapper) return;
+
+            const hasRag = (searchQuery != null && searchQuery !== '') || (chunks && chunks.length > 0);
+
+            if (!hasRag) {
+                noData.classList.remove('hidden');
+                noData.textContent = fromRun ? 'No search query or chunks for this run (RAG was not used).' : 'Generate a prompt above to see search query and retrieved context when RAG is used.';
+                searchBlock.classList.add('hidden');
+                chunksBlock.classList.add('hidden');
+                if (badge) badge.textContent = 'No RAG used';
+                chunksList.innerHTML = '';
+                return;
+            }
+
+            noData.classList.add('hidden');
+
+            if (searchQuery != null && searchQuery !== '') {
+                searchBlock.classList.remove('hidden');
+                queryText.textContent = searchQuery;
+            } else {
+                searchBlock.classList.add('hidden');
+            }
+
+            if (chunks && chunks.length > 0) {
+                chunksBlock.classList.remove('hidden');
+                chunksCountEl.textContent = chunks.length;
+                chunksList.innerHTML = '';
+                chunks.forEach((chunk, index) => {
+                    const content = typeof chunk === 'string' ? chunk : (chunk.content || '');
+                    const preview = content.slice(0, 80).replace(/\s+/g, ' ').trim() + (content.length > 80 ? '…' : '');
+                    const item = document.createElement('details');
+                    item.className = 'rag-chunk-item';
+                    item.innerHTML = '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary><div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
+                    chunksList.appendChild(item);
+                });
+                if (badge) badge.textContent = chunks.length + ' chunk' + (chunks.length !== 1 ? 's' : '');
+            } else {
+                chunksBlock.classList.add('hidden');
+                if (badge) badge.textContent = searchQuery ? 'No chunks' : 'No RAG used';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         async function generateImage() {
@@ -1114,9 +1362,9 @@ Output should read like a refined, publication-ready medical illustration brief 
             downloadBtn.style.display = hasImage ? 'inline-block' : 'none';
         }
 
-        function openImageFullscreen() {
-            const imageUrl = getCurrentImageUrl();
-            if (!imageUrl) return;
+        function openImageFullscreen(imageUrl, captionText) {
+            const url = imageUrl || getCurrentImageUrl();
+            if (!url) return;
 
             const overlay = document.getElementById('imageFullscreenOverlay');
             const img = document.getElementById('imageFullscreen');
@@ -1124,9 +1372,9 @@ Output should read like a refined, publication-ready medical illustration brief 
 
             if (!overlay || !img) return;
 
-            img.src = imageUrl;
+            img.src = url;
             if (caption) {
-                caption.textContent = 'Full-screen view of latest generated image';
+                caption.textContent = captionText || 'Full-screen view of latest generated image';
             }
 
             overlay.classList.add('active');
@@ -1150,6 +1398,18 @@ Output should read like a refined, publication-ready medical illustration brief 
             previewImg.addEventListener('click', () => {
                 if (previewImg.classList.contains('visible')) {
                     openImageFullscreen();
+                }
+            });
+        }
+
+        // Delegate clicks on any chat image to open fullscreen
+        const conversationContainer = document.getElementById('conversationContainer');
+        if (conversationContainer) {
+            conversationContainer.addEventListener('click', (event) => {
+                const img = event.target.closest('.message-image');
+                if (img && img.src) {
+                    const caption = img.alt || 'Generated image';
+                    openImageFullscreen(img.src, caption);
                 }
             });
         }
