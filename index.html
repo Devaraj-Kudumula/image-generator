@@ -11,31 +11,127 @@
             box-sizing: border-box;
         }
 
+        /* Theme: Light (default) – soft, eye-friendly */
+        :root {
+            --bg-page: #eef1f5;
+            --bg-container: #f8f9fc;
+            --bg-section: #ffffff;
+            --bg-input: #fcfcfd;
+            --bg-input-focus: #ffffff;
+            --bg-muted: #f6f7fa;
+            --bg-muted-hover: #f0f2f6;
+            --text-primary: #1a1d24;
+            --text-secondary: #374151;
+            --text-muted: #5c6370;
+            --text-muted-2: #6b7280;
+            --text-muted-3: #9ca3af;
+            --border: rgba(224, 228, 235, 0.9);
+            --border-light: rgba(224, 228, 235, 0.6);
+            --border-input: #d8dce2;
+            --border-hover: rgba(212, 218, 228, 0.9);
+            --accent: #6366f1;
+            --accent-strong: #4f46e5;
+            --accent-deep: #4338ca;
+            --accent-muted-bg: rgba(99, 102, 241, 0.1);
+            --accent-muted-border: rgba(99, 102, 241, 0.25);
+            --shadow-section: 0 1px 3px rgba(26, 29, 36, 0.04);
+            --shadow-container: 0 4px 24px rgba(26, 29, 36, 0.06);
+            --shadow-focus: 0 0 0 3px rgba(99, 102, 241, 0.12);
+            --error-bg: rgba(248, 113, 113, 0.06);
+            --error-border: rgba(248, 113, 113, 0.7);
+            --error-text: #b91c1c;
+            --success-bg: rgba(22, 163, 74, 0.06);
+            --success-border: rgba(34, 197, 94, 0.7);
+            --success-text: #166534;
+            --overlay-bg: rgba(15, 23, 42, 0.9);
+            --overlay-close-bg: rgba(15, 23, 42, 0.75);
+            --overlay-caption: #e5e7eb;
+            --image-preview-card-bg: linear-gradient(to bottom right, rgba(99, 102, 241, 0.04), #f8f9fc);
+            --message-assistant-bg: #f0f2f6;
+            --message-assistant-text: #1a1d24;
+            --btn-secondary-bg: #f3f4f6;
+            --btn-secondary-border: #e5e7eb;
+            --btn-secondary-hover: #e5e7eb;
+            --btn-secondary-text: #374151;
+            --neutral-muted-bg: rgba(148, 163, 184, 0.08);
+            --neutral-muted-border: rgba(148, 163, 184, 0.4);
+        }
+
+        /* Theme: Dark – modern, elegant */
+        html.theme-dark {
+            --bg-page: #16181d;
+            --bg-container: #1c1f26;
+            --bg-section: #23262e;
+            --bg-input: #2a2e36;
+            --bg-input-focus: #2e333c;
+            --bg-muted: #252830;
+            --bg-muted-hover: #2a2e36;
+            --text-primary: #e8eaed;
+            --text-secondary: #c2c8d0;
+            --text-muted: #9ca3af;
+            --text-muted-2: #8b92a0;
+            --text-muted-3: #6b7280;
+            --border: rgba(255, 255, 255, 0.1);
+            --border-light: rgba(255, 255, 255, 0.08);
+            --border-input: rgba(255, 255, 255, 0.15);
+            --border-hover: rgba(255, 255, 255, 0.18);
+            --accent: #818cf8;
+            --accent-strong: #6366f1;
+            --accent-deep: #4f46e5;
+            --accent-muted-bg: rgba(99, 102, 241, 0.2);
+            --accent-muted-border: rgba(99, 102, 241, 0.4);
+            --shadow-section: 0 1px 3px rgba(0, 0, 0, 0.2);
+            --shadow-container: 0 4px 24px rgba(0, 0, 0, 0.3);
+            --shadow-focus: 0 0 0 3px rgba(99, 102, 241, 0.25);
+            --error-bg: rgba(248, 113, 113, 0.12);
+            --error-border: rgba(248, 113, 113, 0.6);
+            --error-text: #fca5a5;
+            --success-bg: rgba(22, 163, 74, 0.12);
+            --success-border: rgba(34, 197, 94, 0.5);
+            --success-text: #86efac;
+            --overlay-bg: rgba(0, 0, 0, 0.88);
+            --overlay-close-bg: rgba(0, 0, 0, 0.6);
+            --overlay-caption: #e5e7eb;
+            --image-preview-card-bg: linear-gradient(to bottom right, rgba(99, 102, 241, 0.12), #1c1f26);
+            --message-assistant-bg: #2a2e36;
+            --message-assistant-text: #e8eaed;
+            --btn-secondary-bg: #2a2e36;
+            --btn-secondary-border: rgba(255, 255, 255, 0.15);
+            --btn-secondary-hover: #33373f;
+            --btn-secondary-text: #c2c8d0;
+            --neutral-muted-bg: rgba(148, 163, 184, 0.12);
+            --neutral-muted-border: rgba(148, 163, 184, 0.35);
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f3f4f6;
+            background: var(--bg-page);
             min-height: 100vh;
-            padding: 20px 24px 28px;
-            color: #0f172a;
+            padding: 24px 28px 32px;
+            color: var(--text-primary);
+            transition: background-color 0.25s ease, color 0.25s ease;
         }
 
         .container {
             width: 100%;
             max-width: 100%;
             margin: 0;
-            background: #ffffff;
+            background: var(--bg-container);
             border-radius: 20px;
-            padding: 20px 24px 26px;
-            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
-            border: 1px solid #e5e7eb;
+            padding: 28px 28px 32px;
+            box-shadow: var(--shadow-container);
+            border: 1px solid var(--border);
+            transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
         }
 
         .app-header {
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
-            gap: 24px;
-            margin-bottom: 24px;
+            gap: 28px;
+            margin-bottom: 28px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-light);
         }
 
         .title-group {
@@ -43,16 +139,49 @@
             min-width: 0;
         }
 
+        .title-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 8px;
+        }
+
+        .app-logo {
+            flex-shrink: 0;
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: linear-gradient(145deg, var(--accent) 0%, var(--accent-strong) 50%, var(--accent-deep) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .app-logo:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .app-logo svg {
+            width: 28px;
+            height: 28px;
+        }
+
         h1 {
-            color: #111827;
-            margin-bottom: 6px;
-            font-size: 2.4rem;
-            letter-spacing: -0.03em;
+            color: var(--text-primary);
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 1.2;
         }
 
         .subtitle {
-            color: #4b5563;
-            font-size: 0.98rem;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.5;
             max-width: 640px;
         }
 
@@ -63,23 +192,81 @@
             align-items: flex-end;
         }
 
+        .theme-toggle-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .theme-toggle-label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-muted-2);
+        }
+
+        .theme-toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            border-radius: 999px;
+            background: var(--border-input);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.25s ease, border-color 0.25s ease;
+            padding: 0;
+            font: inherit;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--border-hover);
+        }
+
+        html.theme-dark .theme-toggle {
+            background: var(--bg-muted);
+        }
+
+        .theme-toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--bg-section);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            transition: transform 0.25s ease, background 0.25s ease;
+        }
+
+        html.theme-dark .theme-toggle::after {
+            transform: translateX(20px);
+        }
+
+        .theme-toggle[aria-pressed="true"]::after {
+            transform: translateX(20px);
+        }
+
         .badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 10px;
-            border-radius: 999px;
+            padding: 8px 14px;
+            border-radius: 10px;
             font-size: 0.78rem;
-            font-weight: 500;
-            background: rgba(59, 130, 246, 0.08);
-            color: #1d4ed8;
-            border: 1px solid rgba(59, 130, 246, 0.5);
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            background: var(--accent-muted-bg);
+            color: var(--accent-strong);
+            border: 1px solid var(--accent-muted-border);
+            transition: background 0.2s ease, border-color 0.2s ease;
         }
 
         .badge-neutral {
-            background: rgba(148, 163, 184, 0.08);
-            border-color: rgba(148, 163, 184, 0.6);
-            color: #4b5563;
+            background: var(--neutral-muted-bg);
+            border-color: var(--neutral-muted-border);
+            color: var(--text-muted);
         }
 
         .app-main {
@@ -90,85 +277,92 @@
         .layout {
             display: grid;
             grid-template-columns: minmax(0, 2.6fr) minmax(0, 2.2fr);
-            gap: 24px;
+            gap: 28px;
             align-items: flex-start;
         }
 
         .column {
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 20px;
         }
 
         .section {
-            background: #f9fafb;
+            background: var(--bg-section);
             border-radius: 16px;
-            padding: 16px 18px 18px;
-            border: 1px solid #e5e7eb;
-            box-shadow: none;
+            padding: 20px 22px 22px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-section);
+            transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.25s ease;
+        }
+
+        .section:hover {
+            border-color: var(--border-hover);
         }
 
         .section-title {
-            color: #111827;
-            font-size: 0.95rem;
+            color: var(--text-primary);
+            font-size: 0.9rem;
             margin-bottom: 6px;
             font-weight: 600;
-            letter-spacing: 0.03em;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
         }
 
         .helper-text {
-            color: #6b7280;
+            color: var(--text-muted-2);
             font-size: 0.83rem;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
             font-style: italic;
+            line-height: 1.45;
         }
 
         textarea {
             width: 100%;
-            padding: 15px;
-            border: 1px solid #d1d5db;
+            padding: 14px 16px;
+            border: 1px solid var(--border-input);
             border-radius: 12px;
             font-size: 0.94rem;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             resize: vertical;
-            transition: border-color 0.18s, box-shadow 0.18s, background-color 0.18s;
-            background: #ffffff;
-            color: #111827;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+            background: var(--bg-input);
+            color: var(--text-primary);
             min-height: 60px;
         }
 
         textarea::placeholder {
-            color: #6b7280;
+            color: var(--text-muted-2);
         }
 
         textarea:focus {
             outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.7), 0 0 0 8px rgba(129, 140, 248, 0.18);
-            background: #ffffff;
+            border-color: var(--accent);
+            box-shadow: var(--shadow-focus);
+            background: var(--bg-input-focus);
         }
 
         button {
-            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 45%, #0ea5e9 100%);
-            color: #f9fafb;
+            background: linear-gradient(135deg, var(--accent-strong) 0%, var(--accent) 50%, #5b21b6 100%);
+            color: #ffffff;
             border: none;
-            padding: 11px 22px;
+            padding: 12px 24px;
             font-size: 0.9rem;
-            border-radius: 999px;
+            border-radius: 12px;
             cursor: pointer;
-            transition: transform 0.16s ease-out, box-shadow 0.16s ease-out, filter 0.12s ease-out, opacity 0.12s ease-out;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
             font-weight: 600;
             margin-top: 10px;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             white-space: nowrap;
+            letter-spacing: 0.02em;
         }
 
         button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(99, 102, 241, 0.35);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
         }
 
         button:active {
@@ -184,8 +378,8 @@
         .button-group {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
+            gap: 12px;
+            margin-top: 12px;
         }
 
         .conversation-container {
@@ -217,13 +411,13 @@
         }
 
         .message-bubble.user {
-            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 40%, #0ea5e9 100%);
+            background: linear-gradient(135deg, var(--accent-strong) 0%, var(--accent) 40%, #0ea5e9 100%);
             color: #f9fafb;
         }
 
         .message-bubble.assistant {
-            background: #f3f4f6;
-            color: #111827;
+            background: var(--message-assistant-bg);
+            color: var(--message-assistant-text);
             box-shadow: none;
         }
 
@@ -248,14 +442,76 @@
 
         .message-meta {
             font-size: 0.78rem;
-            color: #6b7280;
+            color: var(--text-muted-2);
             margin-top: 6px;
+        }
+
+        /* Inline suggest changes under each image */
+        .message-edit-inline {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
+        .message-edit-inline textarea {
+            min-height: 52px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+
+        .message-edit-inline .inline-edit-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .message-edit-inline .inline-edit-actions button {
+            margin-top: 0;
+            padding: 8px 14px;
+            font-size: 0.82rem;
+        }
+
+        .message-edit-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted-2);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 6px;
+        }
+
+        /* Edit previous prompt / edit request */
+        .message-text-edit-wrap {
+            margin-top: 8px;
+        }
+
+        .message-text-edit-wrap textarea {
+            min-height: 60px;
+            margin-bottom: 8px;
+        }
+
+        .message-edit-link {
+            font-size: 0.8rem;
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: none;
+            margin-top: 4px;
+            margin-left: 0;
+            padding: 0;
+            background: none;
+            border: none;
+            display: inline-block;
+            font-weight: 500;
+        }
+
+        .message-edit-link:hover {
+            text-decoration: underline;
         }
 
         .loading {
             display: none;
             text-align: center;
-            color: #4b5563;
+            color: var(--text-muted-2);
             font-size: 0.9rem;
             margin: 16px 0 6px;
         }
@@ -265,8 +521,8 @@
         }
 
         .spinner {
-            border: 3px solid rgba(148, 163, 184, 0.3);
-            border-top: 3px solid #38bdf8;
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--accent);
             border-radius: 50%;
             width: 32px;
             height: 32px;
@@ -280,9 +536,9 @@
         }
 
         .error {
-            background: rgba(248, 113, 113, 0.06);
-            border: 1px solid rgba(248, 113, 113, 0.7);
-            color: #b91c1c;
+            background: var(--error-bg);
+            border: 1px solid var(--error-border);
+            color: var(--error-text);
             padding: 10px 12px;
             border-radius: 12px;
             margin-top: 10px;
@@ -295,9 +551,9 @@
         }
 
         .success {
-            background: rgba(22, 163, 74, 0.06);
-            border: 1px solid rgba(34, 197, 94, 0.7);
-            color: #166534;
+            background: var(--success-bg);
+            border: 1px solid var(--success-border);
+            color: var(--success-text);
             padding: 10px 12px;
             border-radius: 12px;
             margin-top: 10px;
@@ -313,8 +569,8 @@
         .rag-details-wrapper {
             margin-top: 14px;
             border-radius: 12px;
-            border: 1px solid #e5e7eb;
-            background: #fafbfc;
+            border: 1px solid var(--border);
+            background: var(--bg-muted);
             overflow: hidden;
         }
 
@@ -324,15 +580,20 @@
 
         .rag-details-summary {
             list-style: none;
-            padding: 12px 14px;
+            padding: 14px 18px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
             font-weight: 600;
-            color: #374151;
+            color: var(--text-secondary);
             user-select: none;
+            transition: background 0.2s ease;
+        }
+
+        .rag-details-summary:hover {
+            background: var(--bg-muted-hover);
         }
 
         .rag-details-summary::-webkit-details-marker {
@@ -342,7 +603,7 @@
         .rag-details-summary::after {
             content: '▼';
             font-size: 0.7rem;
-            color: #6b7280;
+            color: var(--text-muted-2);
             transition: transform 0.2s ease;
         }
 
@@ -359,13 +620,13 @@
             font-weight: 500;
             padding: 3px 8px;
             border-radius: 999px;
-            background: rgba(148, 163, 184, 0.2);
-            color: #64748b;
+            background: var(--neutral-muted-bg);
+            color: var(--text-muted);
         }
 
         .rag-details-inner {
-            padding: 0 14px 14px;
-            border-top: 1px solid #e5e7eb;
+            padding: 0 18px 18px;
+            border-top: 1px solid var(--border);
         }
 
         .rag-label {
@@ -373,25 +634,131 @@
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            color: #6b7280;
-            margin-bottom: 6px;
-            margin-top: 12px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            margin-top: 14px;
         }
 
         .rag-label:first-child {
-            margin-top: 12px;
+            margin-top: 0;
         }
 
         .rag-query-text {
             padding: 10px 12px;
             border-radius: 10px;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            color: #111827;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
             font-size: 0.88rem;
             line-height: 1.45;
             white-space: pre-wrap;
             word-break: break-word;
+        }
+
+        .rag-query-input {
+            width: 100%;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border-input);
+            background: var(--bg-input);
+            color: var(--text-primary);
+            font-size: 0.92rem;
+            line-height: 1.5;
+            resize: vertical;
+            min-height: 88px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+        }
+
+        .rag-query-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: var(--shadow-focus);
+            background: var(--bg-input-focus);
+        }
+
+        .rag-retrieval-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .rag-btn {
+            padding: 9px 16px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .rag-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        .rag-btn-primary {
+            background: var(--accent-strong);
+            color: #fff;
+            border-color: var(--accent-strong);
+        }
+
+        .rag-btn-primary:hover:not(:disabled) {
+            background: var(--accent-deep);
+            border-color: var(--accent-deep);
+        }
+
+        .rag-btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .rag-btn-secondary {
+            background: var(--btn-secondary-bg);
+            color: var(--btn-secondary-text);
+            border-color: var(--btn-secondary-border);
+        }
+
+        .rag-btn-secondary:hover:not(:disabled) {
+            background: var(--btn-secondary-hover);
+            border-color: var(--border-hover);
+        }
+
+        .rag-btn-secondary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .rag-retrieval-loading,
+        .rag-retrieval-error {
+            font-size: 0.83rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .rag-retrieval-loading.hidden,
+        .rag-retrieval-error.hidden {
+            display: none;
+        }
+
+        .rag-retrieval-error {
+            color: var(--error-text);
+        }
+
+        .rag-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent-strong);
+            border-radius: 50%;
+            animation: rag-spin 0.7s linear infinite;
+        }
+
+        @keyframes rag-spin {
+            to { transform: rotate(360deg); }
         }
 
         .rag-chunks-list {
@@ -402,8 +769,8 @@
 
         .rag-chunk-item {
             border-radius: 10px;
-            border: 1px solid #e5e7eb;
-            background: #ffffff;
+            border: 1px solid var(--border);
+            background: var(--bg-input);
             overflow: hidden;
         }
 
@@ -411,7 +778,7 @@
             padding: 10px 12px;
             cursor: pointer;
             font-size: 0.85rem;
-            color: #374151;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -419,13 +786,13 @@
         }
 
         .rag-chunk-summary:hover {
-            background: #f9fafb;
+            background: var(--bg-muted);
         }
 
         .rag-chunk-summary::after {
             content: '▶';
             font-size: 0.7rem;
-            color: #9ca3af;
+            color: var(--text-muted-3);
             flex-shrink: 0;
         }
 
@@ -434,7 +801,7 @@
         }
 
         .rag-chunk-preview {
-            color: #6b7280;
+            color: var(--text-muted-2);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -444,10 +811,10 @@
 
         .rag-chunk-content {
             padding: 10px 12px 12px;
-            border-top: 1px solid #f3f4f6;
+            border-top: 1px solid var(--border-light);
             font-size: 0.84rem;
             line-height: 1.5;
-            color: #374151;
+            color: var(--text-secondary);
             white-space: pre-wrap;
             word-break: break-word;
             max-height: 220px;
@@ -456,7 +823,7 @@
 
         .rag-no-data {
             font-size: 0.83rem;
-            color: #9ca3af;
+            color: var(--text-muted-3);
             font-style: italic;
             margin-top: 12px;
             padding: 8px 0;
@@ -481,7 +848,7 @@
 
         .chat-image-count {
             font-size: 0.8rem;
-            color: #6b7280;
+            color: var(--text-muted-2);
             margin-top: 4px;
         }
 
@@ -494,11 +861,11 @@
         .chat-session-select {
             padding: 7px 10px;
             border-radius: 999px;
-            border: 1px solid rgba(148, 163, 184, 0.7);
+            border: 1px solid var(--border);
             font-size: 0.82rem;
             min-width: 160px;
-            background: #ffffff;
-            color: #111827;
+            background: var(--bg-input);
+            color: var(--text-primary);
         }
 
         .chat-session-button {
@@ -508,9 +875,9 @@
 
         .image-preview-card {
             border-radius: 14px;
-            background: linear-gradient(to bottom right, rgba(59, 130, 246, 0.05), rgba(249, 250, 251, 1));
-            padding: 10px 10px 12px;
-            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: var(--image-preview-card-bg);
+            padding: 12px 12px 14px;
+            border: 1px solid var(--border);
             display: flex;
             flex-direction: column;
             gap: 8px;
@@ -526,23 +893,23 @@
         .image-preview-title {
             font-size: 0.88rem;
             font-weight: 500;
-            color: #111827;
+            color: var(--text-primary);
         }
 
         .image-preview-meta {
             font-size: 0.76rem;
-            color: #6b7280;
+            color: var(--text-muted-2);
         }
 
         .image-preview-placeholder {
             font-size: 0.8rem;
-            color: #9ca3af;
+            color: var(--text-muted-3);
         }
 
         .image-preview-image {
             width: 100%;
             border-radius: 12px;
-            box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+            box-shadow: 0 18px 34px rgba(0, 0, 0, 0.25);
             display: none;
             cursor: zoom-in;
             transition: transform 0.18s ease, box-shadow 0.18s ease;
@@ -554,16 +921,16 @@
 
         .image-preview-image.visible:hover {
             transform: translateY(-2px);
-            box-shadow: 0 22px 40px rgba(15, 23, 42, 0.26);
+            box-shadow: 0 22px 40px rgba(0, 0, 0, 0.35);
         }
 
         .image-preview-empty {
             border-radius: 10px;
-            border: 1px dashed rgba(148, 163, 184, 0.6);
+            border: 1px dashed var(--neutral-muted-border);
             padding: 12px;
             text-align: center;
             font-size: 0.8rem;
-            color: #9ca3af;
+            color: var(--text-muted-3);
         }
 
         .image-preview-empty.hidden {
@@ -596,14 +963,14 @@
 
         .field-label span {
             font-size: 0.8rem;
-            color: #9ca3af;
+            color: var(--text-muted-3);
         }
 
         /* Fullscreen image overlay */
         .image-fullscreen-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(15, 23, 42, 0.9);
+            background: var(--overlay-bg);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -640,12 +1007,12 @@
             max-height: calc(100vh - 120px);
             border-radius: 18px;
             box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65);
-            background: #020617;
+            background: #0f172a;
         }
 
         .image-fullscreen-caption {
             font-size: 0.85rem;
-            color: #e5e7eb;
+            color: var(--overlay-caption);
             text-align: center;
         }
 
@@ -660,16 +1027,16 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            background: rgba(15, 23, 42, 0.75);
-            color: #e5e7eb;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.7);
+            background: var(--overlay-close-bg);
+            color: var(--overlay-caption);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
             cursor: pointer;
             font-size: 1.2rem;
             line-height: 1;
         }
 
         .image-fullscreen-close:hover {
-            background: rgba(15, 23, 42, 0.95);
+            background: rgba(0, 0, 0, 0.85);
         }
 
         @media (max-width: 1200px) {
@@ -680,18 +1047,37 @@
 
         @media (max-width: 960px) {
             body {
-                padding: 16px;
+                padding: 18px;
             }
 
             .container {
-                padding: 16px 14px 18px;
+                padding: 20px 18px 24px;
                 border-radius: 18px;
             }
 
             .app-header {
                 flex-direction: column;
                 align-items: flex-start;
-                gap: 10px;
+                gap: 14px;
+                margin-bottom: 24px;
+            }
+
+            .title-row {
+                gap: 12px;
+            }
+
+            h1 {
+                font-size: 1.65rem;
+            }
+
+            .app-logo {
+                width: 42px;
+                height: 42px;
+            }
+
+            .app-logo svg {
+                width: 24px;
+                height: 24px;
             }
 
             .header-meta {
@@ -711,7 +1097,7 @@
 
         @media (max-width: 640px) {
             h1 {
-                font-size: 1.7rem;
+                font-size: 1.5rem;
             }
 
             .subtitle {
@@ -719,7 +1105,7 @@
             }
 
             .section {
-                padding: 14px 12px 16px;
+                padding: 16px 14px 18px;
             }
 
             textarea {
@@ -741,18 +1127,36 @@
             }
         }
     </style>
+        <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark') document.documentElement.classList.add('theme-dark');
+        })();
+        </script>
 </head>
 <body>
     <div class="container">
         <header class="app-header">
             <div class="title-group">
-                <h1>🎨 AI Medical Image Generator</h1>
+                <div class="title-row">
+                    <div class="app-logo" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="4" width="16" height="16" rx="2.5"/>
+                            <path d="M12 7v10M7 12h10"/>
+                        </svg>
+                    </div>
+                    <h1>AI Medical Image Generator</h1>
+                </div>
                 <p class="subtitle">
                     Design exam-ready medical illustrations from natural language. Shape a precise prompt, generate images,
                     and iterate safely with a clear visual history.
                 </p>
             </div>
             <div class="header-meta">
+                <div class="theme-toggle-wrap">
+                    <span class="theme-toggle-label" id="themeLabel">Dark mode</span>
+                    <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Toggle dark mode" title="Switch between light and dark theme"></button>
+                </div>
                 <span class="badge">Clinical &amp; USMLE-focused</span>
             </div>
         </header>
@@ -810,17 +1214,26 @@ Output should read like a refined, publication-ready medical illustration brief 
                         </div>
                         <div class="error" id="promptError"></div>
 
-                        <!-- RAG pipeline details: search query + retrieved chunks (collapsible) -->
+                        <!-- RAG pipeline details: editable search query + retrieved chunks (collapsible) -->
                         <div class="rag-details-wrapper" id="ragDetailsWrapper">
                             <details class="rag-details" id="ragDetails">
                                 <summary class="rag-details-summary">
-                                    <span class="rag-details-title">Search & retrieved context</span>
+                                    <span class="rag-details-title">Retrieval Settings & context</span>
                                     <span class="rag-details-badge" id="ragDetailsBadge"></span>
                                 </summary>
                                 <div class="rag-details-inner">
                                     <div class="rag-search-query-block" id="ragSearchQueryBlock">
-                                        <div class="rag-label">Search query (LLM-derived)</div>
-                                        <div class="rag-query-text" id="ragSearchQueryText"></div>
+                                        <div class="rag-label">Search query (editable)</div>
+                                        <textarea id="ragSearchQueryInput" class="rag-query-input" rows="3" placeholder="Edit the search query and re-run retrieval to refresh chunks…"></textarea>
+                                        <div class="rag-retrieval-actions">
+                                            <button type="button" class="rag-btn rag-btn-primary" id="reRunRetrievalBtn" onclick="reRunRetrieval()">Re-run retrieval</button>
+                                            <button type="button" class="rag-btn rag-btn-secondary" id="reSynthesizePromptBtn" onclick="reSynthesizePrompt()">Re-synthesize prompt with current context/chunks</button>
+                                        </div>
+                                        <div class="rag-retrieval-loading hidden" id="ragRetrievalLoading">
+                                            <span class="rag-spinner"></span>
+                                            <span>Retrieving…</span>
+                                        </div>
+                                        <div class="rag-retrieval-error hidden" id="ragRetrievalError"></div>
                                     </div>
                                     <div class="rag-chunks-block" id="ragChunksBlock">
                                         <div class="rag-label">Retrieved chunks (<span id="ragChunksCount">0</span>)</div>
@@ -847,19 +1260,6 @@ Output should read like a refined, publication-ready medical illustration brief 
                         </div>
                     </div>
 
-                    <!-- Suggest Changes Section -->
-                    <div class="section">
-                        <div class="field-label">
-                            <div class="section-title">Suggest Changes to Generated Image</div>
-                            <span>Iterate without rewriting your entire prompt</span>
-                        </div>
-                        <textarea id="imageChanges" rows="4" placeholder="Describe the changes you want to make to the generated image (e.g., zoom on lesion, adjust lighting, highlight a specific step)..."></textarea>
-                        <div class="button-group">
-                            <button onclick="suggestChanges()" id="suggestChangesBtn">
-                                Apply changes to latest image
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Secondary column: preview + chat history -->
@@ -923,10 +1323,34 @@ Output should read like a refined, publication-ready medical illustration brief 
         </div>
 
         <script>
+        (function initTheme() {
+            var root = document.documentElement;
+            var toggle = document.getElementById('themeToggle');
+            var label = document.getElementById('themeLabel');
+            function isDark() { return root.classList.contains('theme-dark'); }
+            function updateUI() {
+                if (toggle) {
+                    toggle.setAttribute('aria-pressed', isDark() ? 'true' : 'false');
+                    toggle.setAttribute('aria-label', isDark() ? 'Switch to light mode' : 'Switch to dark mode');
+                }
+                if (label) label.textContent = isDark() ? 'Light mode' : 'Dark mode';
+            }
+            if (toggle) {
+                toggle.addEventListener('click', function() {
+                    root.classList.toggle('theme-dark');
+                    localStorage.setItem('theme', isDark() ? 'dark' : 'light');
+                    updateUI();
+                });
+            }
+            updateUI();
+        })();
+
         let chats = [];
         let activeChatId = null;
         let nextChatId = 1;
         let nextMessageId = 1;
+        let lastSearchQuery = '';
+        let lastRagChunks = [];
 
         function createNewChat(name) {
             const id = nextChatId++;
@@ -999,9 +1423,7 @@ Output should read like a refined, publication-ready medical illustration brief 
         function startNewChat() {
             createNewChat();
             const generatedPromptEl = document.getElementById('generatedPrompt');
-            const imageChangesEl = document.getElementById('imageChanges');
             if (generatedPromptEl) generatedPromptEl.value = '';
-            if (imageChangesEl) imageChangesEl.value = '';
         }
 
         function addConversationEntry(entry) {
@@ -1013,6 +1435,31 @@ Output should read like a refined, publication-ready medical illustration brief 
             chat.history.push(newEntry);
             renderConversation();
             return newEntry.id;
+        }
+
+        /** Truncate conversation after the given index and recompute chat state (currentImageUrl, imageCount). */
+        function truncateHistoryAfterIndex(chat, index) {
+            if (!chat || !chat.history || index < 0) return;
+            chat.history = chat.history.slice(0, index + 1);
+            let lastImageUrl = null;
+            let count = 0;
+            chat.history.forEach(e => {
+                if (e.imageUrl) {
+                    lastImageUrl = e.imageUrl;
+                    count++;
+                }
+            });
+            chat.currentImageUrl = lastImageUrl;
+            chat.imageCount = count;
+            renderConversation();
+            updateDownloadButtonVisibility();
+            updateChatImageCountDisplay();
+        }
+
+        function getHistoryEntryByIndex(entryIndex) {
+            const chat = getActiveChat();
+            if (!chat || !chat.history || entryIndex < 0 || entryIndex >= chat.history.length) return null;
+            return chat.history[entryIndex];
         }
 
         function renderConversation() {
@@ -1029,33 +1476,61 @@ Output should read like a refined, publication-ready medical illustration brief 
 
             container.innerHTML = '';
 
-            history.forEach(entry => {
+            history.forEach((entry, idx) => {
                 const row = document.createElement('div');
                 row.className = `message-row ${entry.role === 'user' ? 'user' : 'assistant'}`;
+                row.dataset.entryIndex = idx;
 
                 const bubble = document.createElement('div');
                 bubble.className = `message-bubble ${entry.role === 'user' ? 'user' : 'assistant'}`;
 
-                if (entry.text) {
+                if (entry.role === 'user') {
                     const textEl = document.createElement('div');
                     textEl.className = 'message-text';
                     textEl.textContent = entry.text;
                     bubble.appendChild(textEl);
+                    const editLink = document.createElement('button');
+                    editLink.type = 'button';
+                    editLink.className = 'message-edit-link';
+                    editLink.textContent = 'Edit';
+                    editLink.style.background = 'none';
+                    editLink.style.border = 'none';
+                    editLink.style.padding = '0';
+                    editLink.style.marginLeft = '0';
+                    editLink.onclick = () => toggleEditUserMessage(idx);
+                    bubble.appendChild(editLink);
+                    const editWrap = document.createElement('div');
+                    editWrap.className = 'message-text-edit-wrap';
+                    editWrap.setAttribute('style', 'display: none;');
+                    editWrap.innerHTML = '<textarea class="message-edit-textarea" rows="4" placeholder="Edit prompt or edit request..."></textarea><div class="inline-edit-actions"><button type="button" class="rag-btn rag-btn-primary" data-action="save-edit">Save &amp; regenerate</button><button type="button" class="rag-btn rag-btn-secondary" data-action="cancel-edit">Cancel</button></div>';
+                    const textarea = editWrap.querySelector('.message-edit-textarea');
+                    const saveBtn = editWrap.querySelector('[data-action="save-edit"]');
+                    const cancelBtn = editWrap.querySelector('[data-action="cancel-edit"]');
+                    saveBtn.onclick = () => saveEditedUserMessage(idx);
+                    cancelBtn.onclick = () => toggleEditUserMessage(idx);
+                    bubble.appendChild(editWrap);
                 }
 
-                if (entry.imageUrl) {
+                if (entry.role === 'assistant' && entry.imageUrl) {
                     const img = document.createElement('img');
                     img.src = entry.imageUrl;
                     img.className = 'message-image';
                     img.alt = entry.type === 'edited_image' ? 'Edited image' : 'Generated image';
+                    img.onclick = () => openImageFullscreen(entry.imageUrl, entry.sourcePrompt ? 'Prompt: ' + entry.sourcePrompt.slice(0, 80) + '…' : (entry.meta || 'Image'));
                     bubble.appendChild(img);
-                }
-
-                if (entry.meta) {
-                    const metaEl = document.createElement('div');
-                    metaEl.className = 'message-meta';
-                    metaEl.textContent = entry.meta;
-                    bubble.appendChild(metaEl);
+                    if (entry.meta) {
+                        const metaEl = document.createElement('div');
+                        metaEl.className = 'message-meta';
+                        metaEl.textContent = entry.meta;
+                        bubble.appendChild(metaEl);
+                    }
+                    const inlineEdit = document.createElement('div');
+                    inlineEdit.className = 'message-edit-inline';
+                    inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button></div>';
+                    const changeTa = inlineEdit.querySelector('.inline-changes-textarea');
+                    const applyBtn = inlineEdit.querySelector('.inline-apply-changes-btn');
+                    applyBtn.onclick = () => applyChangesToImage(idx, changeTa.value.trim());
+                    bubble.appendChild(inlineEdit);
                 }
 
                 row.appendChild(bubble);
@@ -1063,6 +1538,165 @@ Output should read like a refined, publication-ready medical illustration brief 
             });
 
             container.scrollTop = container.scrollHeight;
+        }
+
+        function toggleEditUserMessage(entryIndex) {
+            const chat = getActiveChat();
+            if (!chat || !chat.history) return;
+            const entry = chat.history[entryIndex];
+            if (!entry || entry.role !== 'user') return;
+            const row = document.querySelector(`[data-entry-index="${entryIndex}"]`);
+            if (!row) return;
+            const bubble = row.querySelector('.message-bubble');
+            const textEl = bubble.querySelector('.message-text');
+            const editLink = bubble.querySelector('.message-edit-link');
+            const editWrap = bubble.querySelector('.message-text-edit-wrap');
+            const textarea = editWrap.querySelector('.message-edit-textarea');
+            if (editWrap.style.display === 'none') {
+                textarea.value = entry.text;
+                editWrap.style.display = 'block';
+                textEl.style.display = 'none';
+                editLink.style.display = 'none';
+            } else {
+                editWrap.style.display = 'none';
+                textEl.style.display = '';
+                editLink.style.display = '';
+            }
+        }
+
+        function saveEditedUserMessage(entryIndex) {
+            const chat = getActiveChat();
+            if (!chat || !chat.history) return;
+            const entry = chat.history[entryIndex];
+            if (!entry || entry.role !== 'user') return;
+            const row = document.querySelector(`[data-entry-index="${entryIndex}"]`);
+            if (!row) return;
+            const textarea = row.querySelector('.message-edit-textarea');
+            const newText = (textarea && textarea.value && textarea.value.trim()) || entry.text;
+            entry.text = newText;
+            truncateHistoryAfterIndex(chat, entryIndex);
+            if (entry.type === 'prompt') {
+                regenerateFromPromptMessage(entryIndex);
+            } else if (entry.type === 'edit_request') {
+                regenerateFromEditMessage(entryIndex);
+            }
+        }
+
+        async function regenerateFromPromptMessage(entryIndex) {
+            const chat = getActiveChat();
+            if (!chat || !chat.history) return;
+            const entry = chat.history[entryIndex];
+            if (!entry || entry.role !== 'user' || entry.type !== 'prompt') return;
+            const prompt = entry.text;
+            const loading = document.getElementById('imageLoading');
+            const errorDiv = document.getElementById('imageError');
+            const successDiv = document.getElementById('imageSuccess');
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+            successDiv.classList.remove('active');
+            try {
+                const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+                const data = await response.json();
+                if (response.ok) {
+                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, filename: data.filename, type: 'image', sourcePrompt: prompt, meta: 'Generated image' });
+                    displayImage(data.image_url);
+                    showSuccess('imageSuccess', 'Image regenerated from edited prompt.');
+                } else {
+                    showError('imageError', data.error || 'Failed to regenerate image');
+                }
+            } catch (e) {
+                showError('imageError', 'Error: ' + (e.message || 'Network error'));
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        async function regenerateFromEditMessage(entryIndex) {
+            const chat = getActiveChat();
+            if (!chat || !chat.history) return;
+            const entry = chat.history[entryIndex];
+            if (!entry || entry.role !== 'user' || entry.type !== 'edit_request') return;
+            if (entryIndex === 0) return;
+            const prevEntry = chat.history[entryIndex - 1];
+            if (!prevEntry || !prevEntry.imageUrl) {
+                showError('imageError', 'Previous image not found for edit.');
+                return;
+            }
+            const prevFilename = prevEntry.filename || (prevEntry.imageUrl ? prevEntry.imageUrl.split('/').pop() : null);
+            if (!prevFilename) {
+                showError('imageError', 'Previous image filename missing.');
+                return;
+            }
+            const changes = entry.text;
+            const loading = document.getElementById('imageLoading');
+            const errorDiv = document.getElementById('imageError');
+            const successDiv = document.getElementById('imageSuccess');
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+            successDiv.classList.remove('active');
+            try {
+                const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: prevFilename, changes }) });
+                const data = await response.json();
+                if (response.ok) {
+                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
+                    displayImage(data.image_url);
+                    showSuccess('imageSuccess', 'Edit reapplied from updated request.');
+                } else {
+                    showError('imageError', data.error || 'Failed to re-apply edit');
+                }
+            } catch (e) {
+                showError('imageError', 'Error: ' + (e.message || 'Network error'));
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        async function applyChangesToImage(entryIndex, changes) {
+            if (!changes) {
+                showError('imageError', 'Please describe the changes you want to make.');
+                return;
+            }
+            const entry = getHistoryEntryByIndex(entryIndex);
+            if (!entry || !entry.imageUrl) {
+                showError('imageError', 'This image cannot be edited (missing reference).');
+                return;
+            }
+            const filename = entry.filename || (entry.imageUrl ? entry.imageUrl.split('/').pop() : null);
+            if (!filename) {
+                showError('imageError', 'This image cannot be edited (missing filename).');
+                return;
+            }
+            const btn = document.querySelector(`[data-entry-index="${entryIndex}"] .inline-apply-changes-btn`);
+            if (btn) btn.disabled = true;
+            const loading = document.getElementById('imageLoading');
+            const errorDiv = document.getElementById('imageError');
+            const successDiv = document.getElementById('imageSuccess');
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+            successDiv.classList.remove('active');
+            addConversationEntry({ role: 'user', text: changes, type: 'edit_request' });
+            try {
+                const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, changes }) });
+                const data = await response.json();
+                if (response.ok) {
+                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
+                    displayImage(data.image_url);
+                    showSuccess('imageSuccess', 'Changes applied.');
+                } else {
+                    showError('imageError', data.error || 'Failed to update image');
+                    const chat = getActiveChat();
+                    if (chat && chat.history.length) chat.history.pop();
+                    renderConversation();
+                }
+            } catch (e) {
+                showError('imageError', 'Error: ' + (e.message || 'Network error'));
+                const chat = getActiveChat();
+                if (chat && chat.history.length) chat.history.pop();
+                renderConversation();
+            } finally {
+                if (btn) btn.disabled = false;
+                loading.classList.remove('active');
+            }
         }
 
         async function generatePrompt() {
@@ -1118,7 +1752,7 @@ Output should read like a refined, publication-ready medical illustration brief 
         function updateRagDetails(searchQuery, chunks, fromRun) {
             const wrapper = document.getElementById('ragDetailsWrapper');
             const searchBlock = document.getElementById('ragSearchQueryBlock');
-            const queryText = document.getElementById('ragSearchQueryText');
+            const queryInput = document.getElementById('ragSearchQueryInput');
             const chunksBlock = document.getElementById('ragChunksBlock');
             const chunksCountEl = document.getElementById('ragChunksCount');
             const chunksList = document.getElementById('ragChunksList');
@@ -1128,6 +1762,11 @@ Output should read like a refined, publication-ready medical illustration brief 
             if (!wrapper) return;
 
             const hasRag = (searchQuery != null && searchQuery !== '') || (chunks && chunks.length > 0);
+
+            if (fromRun && (searchQuery != null || (chunks && chunks.length > 0))) {
+                lastSearchQuery = (searchQuery != null && searchQuery !== '') ? String(searchQuery) : '';
+                lastRagChunks = Array.isArray(chunks) ? chunks : [];
+            }
 
             if (!hasRag) {
                 noData.classList.remove('hidden');
@@ -1143,9 +1782,10 @@ Output should read like a refined, publication-ready medical illustration brief 
 
             if (searchQuery != null && searchQuery !== '') {
                 searchBlock.classList.remove('hidden');
-                queryText.textContent = searchQuery;
+                if (queryInput) queryInput.value = searchQuery;
             } else {
-                searchBlock.classList.add('hidden');
+                searchBlock.classList.remove('hidden');
+                if (queryInput) queryInput.value = lastSearchQuery || '';
             }
 
             if (chunks && chunks.length > 0) {
@@ -1162,8 +1802,112 @@ Output should read like a refined, publication-ready medical illustration brief 
                 });
                 if (badge) badge.textContent = chunks.length + ' chunk' + (chunks.length !== 1 ? 's' : '');
             } else {
-                chunksBlock.classList.add('hidden');
-                if (badge) badge.textContent = searchQuery ? 'No chunks' : 'No RAG used';
+                chunksBlock.classList.remove('hidden');
+                chunksCountEl.textContent = '0';
+                chunksList.innerHTML = '';
+                if (badge) badge.textContent = lastSearchQuery ? 'No chunks' : 'No RAG used';
+            }
+        }
+
+        async function reRunRetrieval() {
+            const queryInput = document.getElementById('ragSearchQueryInput');
+            const loadingEl = document.getElementById('ragRetrievalLoading');
+            const errorEl = document.getElementById('ragRetrievalError');
+            const btn = document.getElementById('reRunRetrievalBtn');
+            const searchQuery = queryInput ? queryInput.value.trim() : '';
+            if (!searchQuery) {
+                if (errorEl) {
+                    errorEl.textContent = 'Enter a search query first.';
+                    errorEl.classList.remove('hidden');
+                }
+                return;
+            }
+            if (loadingEl) loadingEl.classList.remove('hidden');
+            if (errorEl) {
+                errorEl.textContent = '';
+                errorEl.classList.add('hidden');
+            }
+            if (btn) btn.disabled = true;
+            try {
+                const response = await fetch('/re-run-retrieval', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ search_query: searchQuery })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    lastSearchQuery = data.search_query || searchQuery;
+                    lastRagChunks = data.chunks || [];
+                    updateRagDetails(lastSearchQuery, lastRagChunks, true);
+                } else {
+                    if (errorEl) {
+                        errorEl.textContent = data.error || 'Retrieval failed';
+                        errorEl.classList.remove('hidden');
+                    }
+                }
+            } catch (err) {
+                if (errorEl) {
+                    errorEl.textContent = 'Error: ' + (err.message || 'Network error');
+                    errorEl.classList.remove('hidden');
+                }
+            } finally {
+                if (loadingEl) loadingEl.classList.add('hidden');
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function reSynthesizePrompt() {
+            const systemInstruction = document.getElementById('systemInstruction').value.trim();
+            const userQuestion = document.getElementById('userQuestion').value.trim();
+            const queryInput = document.getElementById('ragSearchQueryInput');
+            const currentQuery = queryInput ? queryInput.value.trim() : '';
+            const searchQuery = currentQuery || lastSearchQuery;
+            const chunks = lastRagChunks;
+            if (!systemInstruction) {
+                showError('promptError', 'Please enter a system instruction');
+                return;
+            }
+            if (!userQuestion) {
+                showError('promptError', 'Please enter your medical topic or question');
+                return;
+            }
+            if (!searchQuery) {
+                showError('promptError', 'Enter or generate a search query in Retrieval Settings first.');
+                return;
+            }
+            if (!chunks || chunks.length === 0) {
+                showError('promptError', 'No retrieved chunks. Re-run retrieval with your query first.');
+                return;
+            }
+            const btn = document.getElementById('reSynthesizePromptBtn');
+            const loading = document.getElementById('promptLoading');
+            const errorDiv = document.getElementById('promptError');
+            if (btn) btn.disabled = true;
+            loading.classList.add('active');
+            errorDiv.classList.remove('active');
+            try {
+                const response = await fetch('/generate-prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        system_instruction: systemInstruction,
+                        user_question: userQuestion,
+                        search_query: searchQuery,
+                        chunks: chunks
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('generatedPrompt').value = data.prompt;
+                    updateRagDetails(data.search_query, data.chunks || [], true);
+                } else {
+                    showError('promptError', data.error || 'Failed to re-synthesize prompt');
+                }
+            } catch (err) {
+                showError('promptError', 'Error: ' + (err.message || 'Network error'));
+            } finally {
+                if (btn) btn.disabled = false;
+                loading.classList.remove('active');
             }
         }
 
@@ -1214,77 +1958,14 @@ Output should read like a refined, publication-ready medical illustration brief 
                     addConversationEntry({
                         role: 'assistant',
                         imageUrl: data.image_url,
+                        filename: data.filename,
                         type: 'image',
+                        sourcePrompt: prompt,
                         meta: 'Generated image'
                     });
                     showSuccess('imageSuccess', 'Image generated successfully!');
                 } else {
                     showError('imageError', data.error || 'Failed to generate image');
-                }
-            } catch (error) {
-                showError('imageError', 'Error connecting to server: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                loading.classList.remove('active');
-            }
-        }
-
-        async function suggestChanges() {
-            const changes = document.getElementById('imageChanges').value;
-            const currentUrl = getCurrentImageUrl();
-            const filename = currentUrl ? currentUrl.split('/').pop() : null;
-
-            if (!filename) {
-                showError('imageError', 'No image available to edit. Please generate an image first.');
-                return;
-            }
-
-            if (!changes.trim()) {
-                showError('imageError', 'Please describe the changes you want to make.');
-                return;
-            }
-
-            const btn = document.getElementById('suggestChangesBtn');
-            const loading = document.getElementById('imageLoading');
-            const errorDiv = document.getElementById('imageError');
-            const successDiv = document.getElementById('imageSuccess');
-
-            addConversationEntry({
-                role: 'user',
-                text: changes,
-                type: 'edit_request'
-            });
-
-            btn.disabled = true;
-            loading.classList.add('active');
-            errorDiv.classList.remove('active');
-            successDiv.classList.remove('active');
-
-            try {
-                const response = await fetch('/edit-image', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        filename: filename,
-                        changes: changes
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    displayImage(data.image_url);
-                    addConversationEntry({
-                        role: 'assistant',
-                        imageUrl: data.image_url,
-                        type: 'edited_image',
-                        meta: 'Edited image'
-                    });
-                    showSuccess('imageSuccess', 'Image updated successfully!');
-                } else {
-                    showError('imageError', data.error || 'Failed to update image');
                 }
             } catch (error) {
                 showError('imageError', 'Error connecting to server: ' + error.message);
