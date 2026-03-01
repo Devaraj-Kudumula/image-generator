@@ -259,6 +259,66 @@ def health():
     return jsonify(status), 200
 
 
+def _retrieve_docs_with_timeout(query: str, timeout_sec: int = 20) -> List[Document]:
+    """Run retrieval with timeout; used by generate_prompt and re_run_retrieval."""
+    if not retriever:
+        raise ValueError("Retriever not available")
+    def retrieve_docs():
+        try:
+            return retriever.invoke(query)
+        except Exception as e:
+            logger.error(f"Retriever invoke error: {str(e)}")
+            raise
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future = executor.submit(retrieve_docs)
+        try:
+            return future.result(timeout=timeout_sec)
+        except FuturesTimeoutError:
+            logger.error(f"Document retrieval timed out after {timeout_sec} seconds")
+            raise TimeoutError("Embedding API timeout - please retry")
+
+
+@app.route('/re-run-retrieval', methods=['POST'])
+def re_run_retrieval():
+    """
+    Re-run retrieval with a user-provided search query. Returns chunks for the frontend
+    to display and use in downstream prompt synthesis.
+    """
+    request_start = time.time()
+    logger.info("[/re-run-retrieval] Request received")
+    try:
+        data = request.get_json()
+        search_query = (data or {}).get('search_query', '').strip()
+        if not search_query:
+            return jsonify({'error': 'search_query is required and must be non-empty'}), 400
+        if not retriever:
+            return jsonify({'error': 'RAG retriever not available'}), 503
+        logger.info(f"Re-running retrieval with query: {search_query[:120]}...")
+        docs = _retrieve_docs_with_timeout(search_query)
+        if not docs:
+            return jsonify({
+                'search_query': search_query,
+                'chunks': [],
+                'message': 'No documents found for this query'
+            }), 200
+        chunks_payload = [
+            {"content": doc.page_content, "metadata": getattr(doc, "metadata", {}) or {}}
+            for doc in docs
+        ]
+        elapsed = time.time() - request_start
+        logger.info(f"[/re-run-retrieval] Returned {len(chunks_payload)} chunks in {elapsed:.2f}s")
+        return jsonify({
+            'search_query': search_query,
+            'chunks': chunks_payload,
+        }), 200
+    except TimeoutError as e:
+        return jsonify({'error': str(e)}), 504
+    except Exception as e:
+        logger.error(f"[/re-run-retrieval] Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/generate-prompt', methods=['POST'])
 def generate_prompt():
     """
@@ -284,53 +344,55 @@ def generate_prompt():
         
         logger.info(f"Question: {user_question[:100]}...")
         
+        # Optional: use provided search query and chunks (e.g. from frontend after user edit)
+        override_search_query = (data or {}).get('search_query')
+        override_chunks = (data or {}).get('chunks')
+        use_provided_context = (
+            override_search_query is not None
+            and isinstance(override_chunks, list)
+            and len(override_chunks) > 0
+        )
+
         # Use RAG if vectorstore is available
         if retriever:
             logger.info("Attempting RAG retrieval with timeout protection...")
             try:
-                # Extract retrieval query
-                extract_system = """Extract:
-                    1. Primary medical condition
-                    2. Mechanism keywords
-                    3. Clinical keywords
-                    
-                    Return short structured text only.
-                """
-                
-                logger.info("Extracting retrieval query...")
-                extract_response = llm.invoke([
-                    {"role": "system", "content": extract_system},
-                    {"role": "user", "content": user_question}
-                ])
-                
-                retrieval_query = extract_response.content
-                logger.info(f"Retrieval query: {retrieval_query[:150]}...")
-                
-                # Retrieve documents with timeout protection (20 seconds for cold starts)
-                logger.info("Starting document retrieval (k=3 for speed)...")
-                
-                def retrieve_docs():
-                    try:
-                        return retriever.invoke(retrieval_query)
-                    except Exception as e:
-                        logger.error(f"Retriever invoke error: {str(e)}")
-                        raise
-                
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    future = executor.submit(retrieve_docs)
-                    try:
-                        docs = future.result(timeout=20)  # 20 second timeout for cold starts
-                        logger.info(f"✓ Retrieved {len(docs)} documents in time")
+                if use_provided_context:
+                    # Use frontend-provided query and chunks; skip extract and retrieval
+                    retrieval_query = override_search_query.strip() if isinstance(override_search_query, str) else str(override_search_query)
+                    docs = [
+                        Document(page_content=c.get("content", "") if isinstance(c, dict) else str(c), metadata=c.get("metadata", {}) if isinstance(c, dict) else {})
+                        for c in override_chunks
+                    ]
+                    logger.info(f"Using provided context: query length {len(retrieval_query)}, {len(docs)} chunks")
+                else:
+                    # Extract retrieval query
+                    extract_system = """Extract:
+                        1. Primary medical condition
+                        2. Mechanism keywords
+                        3. Clinical keywords
                         
-                        if docs:
-                            logger.info(f"Doc 1: {docs[0].page_content[:80]}...")
-                        else:
-                            logger.warning("⚠ No documents retrieved, using direct generation")
-                            raise ValueError("No documents found")
-                    except FuturesTimeoutError:
-                        logger.error("✗ Document retrieval timed out after 20 seconds")
-                        logger.error("This may be due to cold start on free tier - retrying will be faster")
-                        raise TimeoutError("Embedding API timeout - please retry")
+                        Return short structured text only.
+                    """
+                    
+                    logger.info("Extracting retrieval query...")
+                    extract_response = llm.invoke([
+                        {"role": "system", "content": extract_system},
+                        {"role": "user", "content": user_question}
+                    ])
+                    
+                    retrieval_query = extract_response.content
+                    logger.info(f"Retrieval query: {retrieval_query[:150]}...")
+                    
+                    # Retrieve documents with timeout protection (20 seconds for cold starts)
+                    logger.info("Starting document retrieval (k=3 for speed)...")
+                    docs = _retrieve_docs_with_timeout(retrieval_query, timeout_sec=20)
+                    if not docs:
+                        logger.warning("⚠ No documents retrieved, using direct generation")
+                        raise ValueError("No documents found")
+                    logger.info(f"✓ Retrieved {len(docs)} documents in time")
+                    if docs:
+                        logger.info(f"Doc 1: {docs[0].page_content[:80]}...")
                 
                 context = "\n\n".join([doc.page_content for doc in docs])
                 logger.info(f"Context assembled ({len(context)} chars)")
