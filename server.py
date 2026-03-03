@@ -113,9 +113,9 @@ logger.info("Initializing MongoDB connection...")
 start_time = time.time()
 
 MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb+srv://db_user:db_user@cluster0.9a1tk8o.mongodb.net/?retryWrites=true&w=majority')
-DB_NAME = "medical_rag"
-COLLECTION_NAME = "medical_documents"
-INDEX_NAME = "vector_index"
+DB_NAME = "medical_vector_db"
+COLLECTION_NAME = "vector_chunks_embeds"
+INDEX_NAME = "default"
 
 # Log MongoDB connection details (masked)
 if MONGODB_URI:
