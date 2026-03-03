@@ -14,3 +14,5 @@ env/
 .DS_Store
 Thumbs.db
 
+/generated_images
+/static
