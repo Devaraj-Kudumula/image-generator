@@ -347,6 +347,40 @@ def _is_no_rag_selected(selected_doc_names: Any) -> bool:
     )
 
 
+def _build_structured_retrieval_query(user_question: str) -> str:
+    """Build a concise clinical retrieval query from the raw user question."""
+    base_question = (user_question or "").strip()
+    if not base_question:
+        return ""
+
+    if llm is None:
+        return base_question
+
+    extract_system = """Extract:
+        1. Primary medical condition
+        2. Mechanism keywords
+        3. Clinical keywords
+
+        Return short structured text only.
+    """
+
+    try:
+        logger.info("Extracting structured retrieval query...")
+        extract_response = llm.invoke([
+            {"role": "system", "content": extract_system},
+            {"role": "user", "content": base_question}
+        ])
+        structured_query = (extract_response.content or "").strip()
+        if structured_query:
+            logger.info(f"Structured retrieval query: {structured_query[:150]}...")
+            return structured_query
+        logger.warning("Structured retrieval query was empty; falling back to raw user question")
+        return base_question
+    except Exception as extract_error:
+        logger.warning(f"Failed to extract structured retrieval query: {str(extract_error)}")
+        return base_question
+
+
 def _retrieve_docs_with_timeout(
     query: str,
     timeout_sec: int = 20,
@@ -428,17 +462,18 @@ def re_run_retrieval():
             return jsonify({'error': 'Retrieval is disabled when NO RAG is selected'}), 400
         if not retriever:
             return jsonify({'error': 'RAG retriever not available'}), 503
-        logger.info(f"Re-running retrieval with query: {search_query[:120]}...")
+        retrieval_query = _build_structured_retrieval_query(search_query)
+        logger.info(f"Re-running retrieval with structured query: {retrieval_query[:120]}...")
         if selected_doc_names:
             logger.info(f"Using selected doc_name filters: {selected_doc_names}")
         docs = _retrieve_docs_with_timeout(
-            search_query,
+            retrieval_query,
             selected_doc_names=selected_doc_names,
             total_k=10,
         )
         if not docs:
             return jsonify({
-                'search_query': search_query,
+                'search_query': retrieval_query,
                 'chunks': [],
                 'selected_doc_names': selected_doc_names,
                 'message': 'No documents found for this query'
@@ -450,7 +485,7 @@ def re_run_retrieval():
         elapsed = time.time() - request_start
         logger.info(f"[/re-run-retrieval] Returned {len(chunks_payload)} chunks in {elapsed:.2f}s")
         return jsonify({
-            'search_query': search_query,
+            'search_query': retrieval_query,
             'chunks': chunks_payload,
             'selected_doc_names': selected_doc_names,
         }), 200
@@ -489,6 +524,7 @@ def generate_prompt():
             return jsonify({'error': 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.'}), 500
         
         logger.info(f"Question: {user_question[:100]}...")
+        structured_user_query = _build_structured_retrieval_query(user_question)
         
         # Optional: use provided search query and chunks (e.g. from frontend after user edit)
         override_search_query = (data or {}).get('search_query')
@@ -513,8 +549,8 @@ def generate_prompt():
                     logger.info(f"Using provided context: query length {len(retrieval_query)}, {len(docs)} chunks")
                 else:
                     # Retrieve documents with timeout protection (20 seconds for cold starts)
-                    retrieval_query = user_question
-                    logger.info("Starting similarity retrieval from user question...")
+                    retrieval_query = structured_user_query
+                    logger.info("Starting similarity retrieval from structured query...")
                     if selected_doc_names:
                         logger.info(f"Applying selected doc_name filters: {selected_doc_names}")
                     docs = _retrieve_docs_with_timeout(
@@ -541,7 +577,10 @@ def generate_prompt():
                     Retrieved High-Yield Medical Context:
                     {context}
                     
-                    User Question:
+                    Structured Clinical Query:
+                    {structured_user_query}
+
+                    Original User Question:
                     {user_question}
                     
                     Return a complete structured and detailed image generation prompt following the system instruction guidelines.
@@ -576,15 +615,29 @@ def generate_prompt():
                 # Fallback to direct generation without RAG
                 response = llm.invoke([
                     {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": f"Create a detailed medical illustration prompt for: {user_question}"}
+                    {
+                        "role": "user",
+                        "content": (
+                            "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
+                            f"Structured Clinical Query: {structured_user_query}\n"
+                            f"Original User Question: {user_question}"
+                        )
+                    }
                 ])
                 generated_prompt = response.content.strip()
                 logger.info(f"✓ Fallback prompt generated ({len(generated_prompt)} chars)")
         elif disable_rag:
-            logger.info("NO RAG mode selected; generating prompt directly from system instruction and user question")
+            logger.info("NO RAG mode selected; generating prompt from structured query and original user question")
             response = llm.invoke([
                 {"role": "system", "content": system_instruction},
-                {"role": "user", "content": f"Create a detailed medical illustration prompt for: {user_question}"}
+                {
+                    "role": "user",
+                    "content": (
+                        "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
+                        f"Structured Clinical Query: {structured_user_query}\n"
+                        f"Original User Question: {user_question}"
+                    )
+                }
             ])
             generated_prompt = response.content.strip()
             logger.info(f"✓ Direct prompt generated (NO RAG mode) ({len(generated_prompt)} chars)")
@@ -593,7 +646,14 @@ def generate_prompt():
             # Direct generation without RAG as fallback
             response = llm.invoke([
                 {"role": "system", "content": system_instruction},
-                {"role": "user", "content": f"Create a detailed medical illustration prompt for: {user_question}"}
+                {
+                    "role": "user",
+                    "content": (
+                        "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
+                        f"Structured Clinical Query: {structured_user_query}\n"
+                        f"Original User Question: {user_question}"
+                    )
+                }
             ])
             generated_prompt = response.content.strip()
             logger.info(f"✓ Direct prompt generated ({len(generated_prompt)} chars)")
@@ -606,7 +666,7 @@ def generate_prompt():
         return jsonify({
             'prompt': generated_prompt,
             'success': True,
-            'search_query': None,
+            'search_query': structured_user_query,
             'selected_doc_names': selected_doc_names,
             'disable_rag': disable_rag,
             'chunks': [],
