@@ -574,6 +574,10 @@
             overflow: hidden;
         }
 
+        .rag-details + .rag-details {
+            border-top: 1px solid var(--border);
+        }
+
         .rag-details {
             font-size: 0.9rem;
         }
@@ -675,6 +679,33 @@
             border-color: var(--accent);
             box-shadow: var(--shadow-focus);
             background: var(--bg-input-focus);
+        }
+
+        .rag-doc-select {
+            width: 100%;
+            min-height: 132px;
+            padding: 8px;
+            border-radius: 12px;
+            border: 1px solid var(--border-input);
+            background: var(--bg-input);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+
+        .rag-doc-select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: var(--shadow-focus);
+            background: var(--bg-input-focus);
+        }
+
+        .rag-doc-help {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            line-height: 1.4;
         }
 
         .rag-retrieval-actions {
@@ -819,6 +850,18 @@
             word-break: break-word;
             max-height: 220px;
             overflow-y: auto;
+        }
+
+        .rag-chunk-meta-inline {
+            padding: 8px 12px 0;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .rag-chunk-meta-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-right: 6px;
         }
 
         .rag-no-data {
@@ -1214,19 +1257,19 @@ Output should read like a refined, publication-ready medical illustration brief 
                         </div>
                         <div class="error" id="promptError"></div>
 
-                        <!-- RAG pipeline details: editable search query + retrieved chunks (collapsible) -->
+                        <!-- RAG pipeline details: retrieval settings and content are separate -->
                         <div class="rag-details-wrapper" id="ragDetailsWrapper">
-                            <details class="rag-details" id="ragDetails">
+                            <details class="rag-details" id="ragSettingsDetails">
                                 <summary class="rag-details-summary">
-                                    <span class="rag-details-title">Retrieval Settings & context</span>
-                                    <span class="rag-details-badge" id="ragDetailsBadge"></span>
+                                    <span class="rag-details-title">Retrieval settings</span>
                                 </summary>
                                 <div class="rag-details-inner">
                                     <div class="rag-search-query-block" id="ragSearchQueryBlock">
-                                        <div class="rag-label">Search query (editable)</div>
-                                        <textarea id="ragSearchQueryInput" class="rag-query-input" rows="3" placeholder="Edit the search query and re-run retrieval to refresh chunks…"></textarea>
+                                        <div class="rag-label">Source documents (optional)</div>
+                                        <select id="ragDocNameSelect" class="rag-doc-select" multiple size="6"></select>
+                                        <div class="rag-doc-help">Select one or more documents. Retrieval uses metadata doc_name filters. For multiple documents, chunks are balanced across selections.</div>
                                         <div class="rag-retrieval-actions">
-                                            <button type="button" class="rag-btn rag-btn-primary" id="reRunRetrievalBtn" onclick="reRunRetrieval()">Re-run retrieval</button>
+                                            <button type="button" class="rag-btn rag-btn-primary" id="reRunRetrievalBtn" onclick="reRunRetrieval()">Retrieve chunks</button>
                                             <button type="button" class="rag-btn rag-btn-secondary" id="reSynthesizePromptBtn" onclick="reSynthesizePrompt()">Re-synthesize prompt with current context/chunks</button>
                                         </div>
                                         <div class="rag-retrieval-loading hidden" id="ragRetrievalLoading">
@@ -1235,11 +1278,19 @@ Output should read like a refined, publication-ready medical illustration brief 
                                         </div>
                                         <div class="rag-retrieval-error hidden" id="ragRetrievalError"></div>
                                     </div>
+                                </div>
+                            </details>
+                            <details class="rag-details" id="ragDetails">
+                                <summary class="rag-details-summary">
+                                    <span class="rag-details-title">Retrieved content</span>
+                                    <span class="rag-details-badge" id="ragDetailsBadge"></span>
+                                </summary>
+                                <div class="rag-details-inner">
                                     <div class="rag-chunks-block" id="ragChunksBlock">
                                         <div class="rag-label">Retrieved chunks (<span id="ragChunksCount">0</span>)</div>
                                         <div class="rag-chunks-list" id="ragChunksList"></div>
                                     </div>
-                                    <p class="rag-no-data" id="ragNoData">Generate a prompt above to see search query and retrieved context when RAG is used.</p>
+                                    <p class="rag-no-data" id="ragNoData">Generate a prompt above to see retrieved context when RAG is used.</p>
                                 </div>
                             </details>
                         </div>
@@ -1349,8 +1400,119 @@ Output should read like a refined, publication-ready medical illustration brief 
         let activeChatId = null;
         let nextChatId = 1;
         let nextMessageId = 1;
-        let lastSearchQuery = '';
         let lastRagChunks = [];
+        const NO_RAG_OPTION_VALUE = 'NO_RAG';
+
+        function isNoRagSelected(docNames) {
+            const selected = Array.isArray(docNames) ? docNames : getSelectedDocNames();
+            return selected.includes(NO_RAG_OPTION_VALUE);
+        }
+
+        function updateRetrievalActionsState() {
+            const noRag = isNoRagSelected();
+            const reRunBtn = document.getElementById('reRunRetrievalBtn');
+            const reSynthesizeBtn = document.getElementById('reSynthesizePromptBtn');
+            const errorEl = document.getElementById('ragRetrievalError');
+
+            if (reRunBtn) reRunBtn.disabled = noRag;
+            if (reSynthesizeBtn) reSynthesizeBtn.disabled = noRag;
+
+            if (errorEl && noRag) {
+                errorEl.textContent = 'NO RAG is selected. Prompt generation will use only system instruction and user question.';
+                errorEl.classList.remove('hidden');
+            } else if (errorEl) {
+                errorEl.textContent = '';
+                errorEl.classList.add('hidden');
+            }
+        }
+
+        function normalizeDocSelection() {
+            const select = document.getElementById('ragDocNameSelect');
+            if (!select) return;
+
+            const selectedValues = Array.from(select.selectedOptions || []).map(option => option.value);
+            if (selectedValues.includes(NO_RAG_OPTION_VALUE)) {
+                Array.from(select.options || []).forEach(option => {
+                    option.selected = option.value === NO_RAG_OPTION_VALUE;
+                });
+            }
+
+            updateRetrievalActionsState();
+        }
+
+        function getSelectedDocNames() {
+            const select = document.getElementById('ragDocNameSelect');
+            if (!select) return [];
+            return Array.from(select.selectedOptions || [])
+                .map(option => option.value)
+                .filter(value => !!value);
+        }
+
+        function setSelectedDocNames(docNames) {
+            const select = document.getElementById('ragDocNameSelect');
+            if (!select) return;
+            const selectedSet = new Set(Array.isArray(docNames) ? docNames : []);
+            const noRagOnly = selectedSet.has(NO_RAG_OPTION_VALUE);
+            Array.from(select.options || []).forEach(option => {
+                option.selected = noRagOnly
+                    ? option.value === NO_RAG_OPTION_VALUE
+                    : selectedSet.has(option.value);
+            });
+            normalizeDocSelection();
+        }
+
+        async function loadDocNames() {
+            const select = document.getElementById('ragDocNameSelect');
+            const errorEl = document.getElementById('ragRetrievalError');
+            if (!select) return;
+
+            const previousSelection = getSelectedDocNames();
+            select.innerHTML = '';
+
+            try {
+                const response = await fetch('/doc-names');
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to load document names');
+                }
+
+                const docNames = Array.isArray(data.doc_names) ? data.doc_names : [];
+
+                const noRagOption = document.createElement('option');
+                noRagOption.value = NO_RAG_OPTION_VALUE;
+                noRagOption.textContent = 'NO RAG';
+                select.appendChild(noRagOption);
+
+                if (docNames.length === 0) {
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = 'No source documents found';
+                    option.disabled = true;
+                    select.appendChild(option);
+                    normalizeDocSelection();
+                    return;
+                }
+
+                docNames.forEach(docName => {
+                    const option = document.createElement('option');
+                    option.value = docName;
+                    option.textContent = docName;
+                    select.appendChild(option);
+                });
+
+                setSelectedDocNames(previousSelection);
+                normalizeDocSelection();
+                if (errorEl) {
+                    errorEl.textContent = '';
+                    errorEl.classList.add('hidden');
+                }
+            } catch (error) {
+                if (errorEl) {
+                    errorEl.textContent = 'Could not load document names: ' + (error.message || 'Unknown error');
+                    errorEl.classList.remove('hidden');
+                }
+            }
+        }
 
         function createNewChat(name) {
             const id = nextChatId++;
@@ -1702,6 +1864,8 @@ Output should read like a refined, publication-ready medical illustration brief 
         async function generatePrompt() {
             const systemInstruction = document.getElementById('systemInstruction').value;
             const userQuestion = document.getElementById('userQuestion').value;
+            const selectedDocNames = getSelectedDocNames();
+            const disableRag = isNoRagSelected(selectedDocNames);
             
             if (!systemInstruction.trim()) {
                 showError('promptError', 'Please enter a system instruction');
@@ -1729,7 +1893,9 @@ Output should read like a refined, publication-ready medical illustration brief 
                     },
                     body: JSON.stringify({
                         system_instruction: systemInstruction,
-                        user_question: userQuestion
+                        user_question: userQuestion,
+                        selected_doc_names: selectedDocNames,
+                        disable_rag: disableRag
                     })
                 });
 
@@ -1738,6 +1904,9 @@ Output should read like a refined, publication-ready medical illustration brief 
                 if (response.ok) {
                     document.getElementById('generatedPrompt').value = data.prompt;
                     updateRagDetails(data.search_query, data.chunks || [], true);
+                    if (Array.isArray(data.selected_doc_names)) {
+                        setSelectedDocNames(data.selected_doc_names);
+                    }
                 } else {
                     showError('promptError', data.error || 'Failed to generate prompt');
                 }
@@ -1752,7 +1921,6 @@ Output should read like a refined, publication-ready medical illustration brief 
         function updateRagDetails(searchQuery, chunks, fromRun) {
             const wrapper = document.getElementById('ragDetailsWrapper');
             const searchBlock = document.getElementById('ragSearchQueryBlock');
-            const queryInput = document.getElementById('ragSearchQueryInput');
             const chunksBlock = document.getElementById('ragChunksBlock');
             const chunksCountEl = document.getElementById('ragChunksCount');
             const chunksList = document.getElementById('ragChunksList');
@@ -1764,14 +1932,13 @@ Output should read like a refined, publication-ready medical illustration brief 
             const hasRag = (searchQuery != null && searchQuery !== '') || (chunks && chunks.length > 0);
 
             if (fromRun && (searchQuery != null || (chunks && chunks.length > 0))) {
-                lastSearchQuery = (searchQuery != null && searchQuery !== '') ? String(searchQuery) : '';
                 lastRagChunks = Array.isArray(chunks) ? chunks : [];
             }
 
             if (!hasRag) {
                 noData.classList.remove('hidden');
-                noData.textContent = fromRun ? 'No search query or chunks for this run (RAG was not used).' : 'Generate a prompt above to see search query and retrieved context when RAG is used.';
-                searchBlock.classList.add('hidden');
+                noData.textContent = fromRun ? 'No chunks for this run (RAG was not used).' : 'Generate a prompt above to see retrieved context when RAG is used.';
+                searchBlock.classList.remove('hidden');
                 chunksBlock.classList.add('hidden');
                 if (badge) badge.textContent = 'No RAG used';
                 chunksList.innerHTML = '';
@@ -1779,14 +1946,7 @@ Output should read like a refined, publication-ready medical illustration brief 
             }
 
             noData.classList.add('hidden');
-
-            if (searchQuery != null && searchQuery !== '') {
-                searchBlock.classList.remove('hidden');
-                if (queryInput) queryInput.value = searchQuery;
-            } else {
-                searchBlock.classList.remove('hidden');
-                if (queryInput) queryInput.value = lastSearchQuery || '';
-            }
+            searchBlock.classList.remove('hidden');
 
             if (chunks && chunks.length > 0) {
                 chunksBlock.classList.remove('hidden');
@@ -1795,9 +1955,15 @@ Output should read like a refined, publication-ready medical illustration brief 
                 chunks.forEach((chunk, index) => {
                     const content = typeof chunk === 'string' ? chunk : (chunk.content || '');
                     const preview = content.slice(0, 80).replace(/\s+/g, ' ').trim() + (content.length > 80 ? '…' : '');
+                    const rawMetadata = (chunk && typeof chunk === 'object' && chunk.metadata) ? chunk.metadata : {};
+                    const nestedMetadata = (rawMetadata && typeof rawMetadata === 'object' && rawMetadata.metadata && typeof rawMetadata.metadata === 'object') ? rawMetadata.metadata : {};
+                    const docName = (rawMetadata && rawMetadata.doc_name) || (nestedMetadata && nestedMetadata.doc_name) || 'Unknown';
                     const item = document.createElement('details');
                     item.className = 'rag-chunk-item';
-                    item.innerHTML = '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary><div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
+                    item.innerHTML =
+                        '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary>' +
+                        '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">doc_name:</span>' + escapeHtml(String(docName)) + '</div>' +
+                        '<div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
                     chunksList.appendChild(item);
                 });
                 if (badge) badge.textContent = chunks.length + ' chunk' + (chunks.length !== 1 ? 's' : '');
@@ -1805,19 +1971,26 @@ Output should read like a refined, publication-ready medical illustration brief 
                 chunksBlock.classList.remove('hidden');
                 chunksCountEl.textContent = '0';
                 chunksList.innerHTML = '';
-                if (badge) badge.textContent = lastSearchQuery ? 'No chunks' : 'No RAG used';
+                if (badge) badge.textContent = 'No chunks';
             }
         }
 
         async function reRunRetrieval() {
-            const queryInput = document.getElementById('ragSearchQueryInput');
             const loadingEl = document.getElementById('ragRetrievalLoading');
             const errorEl = document.getElementById('ragRetrievalError');
             const btn = document.getElementById('reRunRetrievalBtn');
-            const searchQuery = queryInput ? queryInput.value.trim() : '';
+            const searchQuery = document.getElementById('userQuestion').value.trim();
+            const selectedDocNames = getSelectedDocNames();
+            if (isNoRagSelected(selectedDocNames)) {
+                if (errorEl) {
+                    errorEl.textContent = 'Retrieval is disabled while NO RAG is selected.';
+                    errorEl.classList.remove('hidden');
+                }
+                return;
+            }
             if (!searchQuery) {
                 if (errorEl) {
-                    errorEl.textContent = 'Enter a search query first.';
+                    errorEl.textContent = 'Enter your medical topic/question first.';
                     errorEl.classList.remove('hidden');
                 }
                 return;
@@ -1832,13 +2005,18 @@ Output should read like a refined, publication-ready medical illustration brief 
                 const response = await fetch('/re-run-retrieval', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ search_query: searchQuery })
+                    body: JSON.stringify({
+                        search_query: searchQuery,
+                        selected_doc_names: selectedDocNames
+                    })
                 });
                 const data = await response.json();
                 if (response.ok) {
-                    lastSearchQuery = data.search_query || searchQuery;
                     lastRagChunks = data.chunks || [];
-                    updateRagDetails(lastSearchQuery, lastRagChunks, true);
+                    updateRagDetails(searchQuery, lastRagChunks, true);
+                    if (Array.isArray(data.selected_doc_names)) {
+                        setSelectedDocNames(data.selected_doc_names);
+                    }
                 } else {
                     if (errorEl) {
                         errorEl.textContent = data.error || 'Retrieval failed';
@@ -1859,10 +2037,13 @@ Output should read like a refined, publication-ready medical illustration brief 
         async function reSynthesizePrompt() {
             const systemInstruction = document.getElementById('systemInstruction').value.trim();
             const userQuestion = document.getElementById('userQuestion').value.trim();
-            const queryInput = document.getElementById('ragSearchQueryInput');
-            const currentQuery = queryInput ? queryInput.value.trim() : '';
-            const searchQuery = currentQuery || lastSearchQuery;
+            const searchQuery = userQuestion;
             const chunks = lastRagChunks;
+            const selectedDocNames = getSelectedDocNames();
+            if (isNoRagSelected(selectedDocNames)) {
+                showError('promptError', 'NO RAG is selected. Use "Generate image prompt" for direct prompt generation.');
+                return;
+            }
             if (!systemInstruction) {
                 showError('promptError', 'Please enter a system instruction');
                 return;
@@ -1871,12 +2052,8 @@ Output should read like a refined, publication-ready medical illustration brief 
                 showError('promptError', 'Please enter your medical topic or question');
                 return;
             }
-            if (!searchQuery) {
-                showError('promptError', 'Enter or generate a search query in Retrieval Settings first.');
-                return;
-            }
             if (!chunks || chunks.length === 0) {
-                showError('promptError', 'No retrieved chunks. Re-run retrieval with your query first.');
+                showError('promptError', 'No retrieved chunks. Click "Retrieve chunks" first.');
                 return;
             }
             const btn = document.getElementById('reSynthesizePromptBtn');
@@ -1893,13 +2070,17 @@ Output should read like a refined, publication-ready medical illustration brief 
                         system_instruction: systemInstruction,
                         user_question: userQuestion,
                         search_query: searchQuery,
-                        chunks: chunks
+                        chunks: chunks,
+                        selected_doc_names: selectedDocNames
                     })
                 });
                 const data = await response.json();
                 if (response.ok) {
                     document.getElementById('generatedPrompt').value = data.prompt;
                     updateRagDetails(data.search_query, data.chunks || [], true);
+                    if (Array.isArray(data.selected_doc_names)) {
+                        setSelectedDocNames(data.selected_doc_names);
+                    }
                 } else {
                     showError('promptError', data.error || 'Failed to re-synthesize prompt');
                 }
@@ -2073,6 +2254,12 @@ Output should read like a refined, publication-ready medical illustration brief 
 
         // Initialize with a default chat session and set up image interactions
         createNewChat('Chat 1');
+        loadDocNames();
+        const ragDocNameSelect = document.getElementById('ragDocNameSelect');
+        if (ragDocNameSelect) {
+            ragDocNameSelect.addEventListener('change', normalizeDocSelection);
+        }
+        updateRetrievalActionsState();
 
         const previewImg = document.getElementById('currentImagePreview');
         if (previewImg) {

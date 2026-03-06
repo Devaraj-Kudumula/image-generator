@@ -4,10 +4,11 @@ import os
 import sys
 import logging
 import time
+import re
 from datetime import datetime
 import requests
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any, Optional
 from io import BytesIO
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
@@ -116,6 +117,7 @@ MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb+srv://db_user:db_user@cluster0.9
 DB_NAME = "medical_vector_db"
 COLLECTION_NAME = "vector_chunks_embeds"
 INDEX_NAME = "default"
+NO_RAG_OPTION_VALUE = "NO_RAG"
 
 # Log MongoDB connection details (masked)
 if MONGODB_URI:
@@ -128,7 +130,38 @@ logger.info(f"Target database: {DB_NAME}, collection: {COLLECTION_NAME}, index: 
 
 vectorstore = None
 retriever = None
+known_doc_names: List[str] = []
 mongo_client = None
+
+
+def _fetch_distinct_doc_names() -> List[str]:
+    """Fetch distinct document names from known metadata locations in MongoDB."""
+    if not mongo_client:
+        return []
+
+    try:
+        collection = mongo_client[DB_NAME][COLLECTION_NAME]
+    except Exception as e:
+        logger.warning(f"⚠ Could not access collection for doc_name lookup: {str(e)}")
+        return []
+
+    field_paths = (
+        "metadata.doc_name",
+        "metadata.metadata.doc_name",
+        "doc_name",
+    )
+    names = set()
+    for field_path in field_paths:
+        try:
+            for value in collection.distinct(field_path):
+                if isinstance(value, str) and value.strip():
+                    names.add(value.strip())
+        except Exception as distinct_error:
+            logger.debug(
+                f"Could not load distinct values for '{field_path}': {str(distinct_error)}"
+            )
+
+    return sorted(names)
 
 try:
     # Initialize embeddings
@@ -181,6 +214,13 @@ try:
     collection = mongo_client[DB_NAME][COLLECTION_NAME]
     doc_count = collection.count_documents({})
     logger.info(f"✓ Found {doc_count} documents in MongoDB collection")
+
+    try:
+        known_doc_names = _fetch_distinct_doc_names()
+        logger.info(f"✓ Loaded {len(known_doc_names)} distinct doc_name values")
+    except Exception as distinct_error:
+        logger.warning(f"⚠ Could not load distinct doc_name values: {str(distinct_error)}")
+        known_doc_names = []
     
     if doc_count == 0:
         logger.warning("⚠ MongoDB collection is empty - run build_mongo_vectorstore.py first")
@@ -190,7 +230,8 @@ try:
         vectorstore = MongoDBAtlasVectorSearch(
             collection=collection,
             embedding=embedding_model,
-            index_name=INDEX_NAME
+            index_name=INDEX_NAME,
+            text_key="chunk_text"
         )
         
         # Create retriever
@@ -198,7 +239,7 @@ try:
             search_type="similarity",
             search_kwargs={"k": 10}
         )
-        
+
         load_time = time.time() - start_time
         logger.info(f"✓ MongoDB vectorstore loaded successfully in {load_time:.2f}s")
         logger.info(f"✓ Retriever configured: similarity search with k=10")
@@ -216,6 +257,7 @@ except Exception as e:
     logger.error("="*60)
     vectorstore = None
     retriever = None
+    known_doc_names = []
     if mongo_client:
         try:
             mongo_client.close()
@@ -251,6 +293,7 @@ def health():
         'mongodb_connected': mongo_client is not None,
         'vectorstore_loaded': vectorstore is not None,
         'retriever_ready': retriever is not None,
+        'doc_name_catalog_ready': len(known_doc_names) > 0,
         'vectorstore_doc_count': doc_count,
         'gemini_client_ready': gemini_client is not None,
         'rag_available': retriever is not None and doc_count > 0
@@ -259,13 +302,100 @@ def health():
     return jsonify(status), 200
 
 
-def _retrieve_docs_with_timeout(query: str, timeout_sec: int = 20) -> List[Document]:
-    """Run retrieval with timeout; used by generate_prompt and re_run_retrieval."""
+def _extract_doc_name_from_doc(doc: Document) -> Optional[str]:
+    metadata = getattr(doc, "metadata", {}) or {}
+    if isinstance(metadata, dict):
+        top_level = metadata.get("doc_name")
+        if isinstance(top_level, str) and top_level.strip():
+            return top_level
+        nested = metadata.get("metadata")
+        if isinstance(nested, dict):
+            nested_doc_name = nested.get("doc_name")
+            if isinstance(nested_doc_name, str) and nested_doc_name.strip():
+                return nested_doc_name
+    return None
+
+
+def _sanitize_selected_doc_names(selected_doc_names: Any) -> List[str]:
+    global known_doc_names
+    if not isinstance(selected_doc_names, list):
+        return []
+    candidate_names = [str(name).strip() for name in selected_doc_names if isinstance(name, str) and str(name).strip()]
+    if not candidate_names:
+        return []
+
+    if not known_doc_names:
+        known_doc_names = _fetch_distinct_doc_names()
+
+    if any(name not in set(known_doc_names) for name in candidate_names):
+        latest_doc_names = _fetch_distinct_doc_names()
+        if latest_doc_names:
+            known_doc_names = latest_doc_names
+
+    valid_names = set(known_doc_names)
+    if not valid_names:
+        return []
+    return [name for name in candidate_names if name in valid_names]
+
+
+def _is_no_rag_selected(selected_doc_names: Any) -> bool:
+    if not isinstance(selected_doc_names, list):
+        return False
+    return any(
+        isinstance(name, str) and name.strip().upper() == NO_RAG_OPTION_VALUE
+        for name in selected_doc_names
+    )
+
+
+def _retrieve_docs_with_timeout(
+    query: str,
+    timeout_sec: int = 20,
+    selected_doc_names: Optional[List[str]] = None,
+    total_k: int = 10,
+) -> List[Document]:
+    """Run retrieval with timeout; supports explicit selected doc_name filtering."""
     if not retriever:
         raise ValueError("Retriever not available")
+
     def retrieve_docs():
         try:
-            return retriever.invoke(query)
+            sanitized_doc_names = _sanitize_selected_doc_names(selected_doc_names)
+
+            if sanitized_doc_names:
+                if vectorstore is None:
+                    raise ValueError("Vectorstore not available for doc_name filtered retrieval")
+
+                chunk_count = max(1, int(total_k))
+                doc_count = len(sanitized_doc_names)
+                base_k = chunk_count // doc_count
+                remainder = chunk_count % doc_count
+
+                docs: List[Document] = []
+                for index, doc_name in enumerate(sanitized_doc_names):
+                    per_doc_k = base_k + (1 if index < remainder else 0)
+                    if per_doc_k <= 0:
+                        continue
+                    pre_filter = {"metadata.doc_name": {"$eq": doc_name}}
+                    filtered_docs = vectorstore.similarity_search(
+                        query=query,
+                        k=per_doc_k,
+                        pre_filter=pre_filter,
+                    )
+                    logger.info(
+                        f"Doc filter retrieval: doc_name='{doc_name}', requested_k={per_doc_k}, returned={len(filtered_docs)}"
+                    )
+                    docs.extend(filtered_docs)
+
+                return docs
+
+            logger.info("Using base similarity retriever (no doc_name filters)")
+            docs = retriever.invoke(query)
+            if docs:
+                return docs
+            if vectorstore is not None:
+                logger.warning("Retriever returned 0 docs; retrying direct similarity search")
+                return vectorstore.similarity_search(query=query, k=max(1, int(total_k)))
+            return docs
         except Exception as e:
             logger.error(f"Retriever invoke error: {str(e)}")
             raise
@@ -289,16 +419,28 @@ def re_run_retrieval():
     try:
         data = request.get_json()
         search_query = (data or {}).get('search_query', '').strip()
+        raw_selected_doc_names = (data or {}).get('selected_doc_names')
+        disable_rag = bool((data or {}).get('disable_rag')) or _is_no_rag_selected(raw_selected_doc_names)
+        selected_doc_names = _sanitize_selected_doc_names(raw_selected_doc_names)
         if not search_query:
             return jsonify({'error': 'search_query is required and must be non-empty'}), 400
+        if disable_rag:
+            return jsonify({'error': 'Retrieval is disabled when NO RAG is selected'}), 400
         if not retriever:
             return jsonify({'error': 'RAG retriever not available'}), 503
         logger.info(f"Re-running retrieval with query: {search_query[:120]}...")
-        docs = _retrieve_docs_with_timeout(search_query)
+        if selected_doc_names:
+            logger.info(f"Using selected doc_name filters: {selected_doc_names}")
+        docs = _retrieve_docs_with_timeout(
+            search_query,
+            selected_doc_names=selected_doc_names,
+            total_k=10,
+        )
         if not docs:
             return jsonify({
                 'search_query': search_query,
                 'chunks': [],
+                'selected_doc_names': selected_doc_names,
                 'message': 'No documents found for this query'
             }), 200
         chunks_payload = [
@@ -310,6 +452,7 @@ def re_run_retrieval():
         return jsonify({
             'search_query': search_query,
             'chunks': chunks_payload,
+            'selected_doc_names': selected_doc_names,
         }), 200
     except TimeoutError as e:
         return jsonify({'error': str(e)}), 504
@@ -333,6 +476,9 @@ def generate_prompt():
         logger.info(f"Request data keys: {list(data.keys()) if data else 'None'}")
         system_instruction = data.get('system_instruction', '')
         user_question = data.get('user_question', 'A serene landscape at sunset')
+        raw_selected_doc_names = (data or {}).get('selected_doc_names')
+        disable_rag = bool((data or {}).get('disable_rag')) or _is_no_rag_selected(raw_selected_doc_names)
+        selected_doc_names = _sanitize_selected_doc_names(raw_selected_doc_names)
         
         if not system_instruction:
             logger.warning("Request missing system instruction")
@@ -353,8 +499,8 @@ def generate_prompt():
             and len(override_chunks) > 0
         )
 
-        # Use RAG if vectorstore is available
-        if retriever:
+        # Use RAG if retriever is available and NO RAG mode is not selected
+        if retriever and not disable_rag:
             logger.info("Attempting RAG retrieval with timeout protection...")
             try:
                 if use_provided_context:
@@ -366,31 +512,24 @@ def generate_prompt():
                     ]
                     logger.info(f"Using provided context: query length {len(retrieval_query)}, {len(docs)} chunks")
                 else:
-                    # Extract retrieval query
-                    extract_system = """Extract:
-                        1. Primary medical condition
-                        2. Mechanism keywords
-                        3. Clinical keywords
-                        
-                        Return short structured text only.
-                    """
-                    
-                    logger.info("Extracting retrieval query...")
-                    extract_response = llm.invoke([
-                        {"role": "system", "content": extract_system},
-                        {"role": "user", "content": user_question}
-                    ])
-                    
-                    retrieval_query = extract_response.content
-                    logger.info(f"Retrieval query: {retrieval_query[:150]}...")
-                    
                     # Retrieve documents with timeout protection (20 seconds for cold starts)
-                    logger.info("Starting document retrieval (k=3 for speed)...")
-                    docs = _retrieve_docs_with_timeout(retrieval_query, timeout_sec=20)
+                    retrieval_query = user_question
+                    logger.info("Starting similarity retrieval from user question...")
+                    if selected_doc_names:
+                        logger.info(f"Applying selected doc_name filters: {selected_doc_names}")
+                    docs = _retrieve_docs_with_timeout(
+                        retrieval_query,
+                        timeout_sec=20,
+                        selected_doc_names=selected_doc_names,
+                        total_k=10,
+                    )
                     if not docs:
                         logger.warning("⚠ No documents retrieved, using direct generation")
                         raise ValueError("No documents found")
                     logger.info(f"✓ Retrieved {len(docs)} documents in time")
+                    doc_names = sorted({_extract_doc_name_from_doc(doc) for doc in docs if _extract_doc_name_from_doc(doc)})
+                    if doc_names:
+                        logger.info(f"Filtered doc_name values used for retrieval: {doc_names}")
                     if docs:
                         logger.info(f"Doc 1: {docs[0].page_content[:80]}...")
                 
@@ -426,6 +565,8 @@ def generate_prompt():
                     'prompt': generated_prompt,
                     'success': True,
                     'search_query': retrieval_query,
+                    'selected_doc_names': selected_doc_names,
+                    'disable_rag': False,
                     'chunks': chunks_payload,
                 })
                 
@@ -439,6 +580,14 @@ def generate_prompt():
                 ])
                 generated_prompt = response.content.strip()
                 logger.info(f"✓ Fallback prompt generated ({len(generated_prompt)} chars)")
+        elif disable_rag:
+            logger.info("NO RAG mode selected; generating prompt directly from system instruction and user question")
+            response = llm.invoke([
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": f"Create a detailed medical illustration prompt for: {user_question}"}
+            ])
+            generated_prompt = response.content.strip()
+            logger.info(f"✓ Direct prompt generated (NO RAG mode) ({len(generated_prompt)} chars)")
         else:
             logger.warning("⚠ RAG system not available, using direct generation without retrieval")
             # Direct generation without RAG as fallback
@@ -458,6 +607,8 @@ def generate_prompt():
             'prompt': generated_prompt,
             'success': True,
             'search_query': None,
+            'selected_doc_names': selected_doc_names,
+            'disable_rag': disable_rag,
             'chunks': [],
         })
     
@@ -467,6 +618,17 @@ def generate_prompt():
         logger.error(traceback.format_exc())
         logger.info("="*50)
         return jsonify({'error': f'Error generating prompt: {str(e)}'}), 500
+
+
+@app.route('/doc-names', methods=['GET'])
+def get_doc_names():
+    """Return distinct source document names available in the vector store."""
+    global known_doc_names
+    latest_names = _fetch_distinct_doc_names()
+    if latest_names:
+        known_doc_names = latest_names
+    names = sorted([name for name in known_doc_names if isinstance(name, str) and name.strip()])
+    return jsonify({'doc_names': names, 'count': len(names)}), 200
 
 
 @app.route('/generate-image', methods=['POST'])
