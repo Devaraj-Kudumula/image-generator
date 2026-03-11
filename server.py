@@ -1112,8 +1112,8 @@ def generate_image():
             logger.error("No image generated in response")
             return jsonify({'error': 'No image generated in response. Check server logs for details.'}), 500
         
-        # Return the URL for serving (works for both local and deployed)
-        image_url = f'{request.host_url}images/{filename}'
+        # In serverless, avoid cross-instance /images fetches by returning inline data URL as primary URL.
+        image_url = image_data_url if IS_SERVERLESS and image_data_url else f'{request.host_url}images/{filename}'
         
         request_time = time.time() - request_start
         logger.info(f"[/generate-image] Success in {request_time:.2f}s")
@@ -1261,8 +1261,8 @@ def edit_image():
             logger.error("No edited image generated in response")
             return jsonify({'error': 'No edited image generated in response. Check server logs for details.'}), 500
 
-        # Return the URL for the new image
-        image_url = f'{request.host_url}images/{new_filename}'
+        # In serverless, avoid cross-instance /images fetches by returning inline data URL as primary URL.
+        image_url = edited_image_data_url if IS_SERVERLESS and edited_image_data_url else f'{request.host_url}images/{new_filename}'
 
         request_time = time.time() - request_start
         logger.info(f"[/edit-image] Success in {request_time:.2f}s")
