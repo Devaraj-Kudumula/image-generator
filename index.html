@@ -1267,7 +1267,7 @@ Output should read like a refined, publication-ready medical illustration brief 
                                     <div class="rag-search-query-block" id="ragSearchQueryBlock">
                                         <div class="rag-label">Source documents (optional)</div>
                                         <select id="ragDocNameSelect" class="rag-doc-select" multiple size="6"></select>
-                                        <div class="rag-doc-help">Select one or more documents. Retrieval uses metadata doc_name filters. For multiple documents, chunks are balanced across selections.</div>
+                                        <div class="rag-doc-help">Select one or more sources. Choose documents for vector retrieval, add Web Retrieval for Google search content, or use NO RAG to disable retrieval.</div>
                                         <div class="rag-retrieval-actions">
                                             <button type="button" class="rag-btn rag-btn-primary" id="reRunRetrievalBtn" onclick="reRunRetrieval()">Retrieve chunks</button>
                                             <button type="button" class="rag-btn rag-btn-secondary" id="reSynthesizePromptBtn" onclick="reSynthesizePrompt()">Re-synthesize prompt with current context/chunks</button>
@@ -1402,6 +1402,7 @@ Output should read like a refined, publication-ready medical illustration brief 
         let nextMessageId = 1;
         let lastRagChunks = [];
         const NO_RAG_OPTION_VALUE = 'NO_RAG';
+        const WEB_RETRIEVAL_OPTION_VALUE = 'WEB_RETRIEVAL';
 
         function isNoRagSelected(docNames) {
             const selected = Array.isArray(docNames) ? docNames : getSelectedDocNames();
@@ -1482,6 +1483,11 @@ Output should read like a refined, publication-ready medical illustration brief 
                 noRagOption.value = NO_RAG_OPTION_VALUE;
                 noRagOption.textContent = 'NO RAG';
                 select.appendChild(noRagOption);
+
+                const webRetrievalOption = document.createElement('option');
+                webRetrievalOption.value = WEB_RETRIEVAL_OPTION_VALUE;
+                webRetrievalOption.textContent = 'Web Retrieval';
+                select.appendChild(webRetrievalOption);
 
                 if (docNames.length === 0) {
                     const option = document.createElement('option');
@@ -1957,12 +1963,16 @@ Output should read like a refined, publication-ready medical illustration brief 
                     const preview = content.slice(0, 80).replace(/\s+/g, ' ').trim() + (content.length > 80 ? '…' : '');
                     const rawMetadata = (chunk && typeof chunk === 'object' && chunk.metadata) ? chunk.metadata : {};
                     const nestedMetadata = (rawMetadata && typeof rawMetadata === 'object' && rawMetadata.metadata && typeof rawMetadata.metadata === 'object') ? rawMetadata.metadata : {};
+                    const sourceType = (rawMetadata && rawMetadata.source_type) ? String(rawMetadata.source_type) : 'vector';
                     const docName = (rawMetadata && rawMetadata.doc_name) || (nestedMetadata && nestedMetadata.doc_name) || 'Unknown';
+                    const sourceUrl = (rawMetadata && rawMetadata.url) ? String(rawMetadata.url) : '';
+                    const sourceLabel = sourceType === 'web' ? 'Web source' : 'doc_name';
+                    const sourceValue = sourceType === 'web' ? (sourceUrl || 'Unknown URL') : String(docName);
                     const item = document.createElement('details');
                     item.className = 'rag-chunk-item';
                     item.innerHTML =
                         '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary>' +
-                        '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">doc_name:</span>' + escapeHtml(String(docName)) + '</div>' +
+                        '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">' + escapeHtml(sourceLabel) + ':</span>' + escapeHtml(sourceValue) + '</div>' +
                         '<div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
                     chunksList.appendChild(item);
                 });
