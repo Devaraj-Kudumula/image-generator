@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import os
 import sys
+import base64
+import binascii
 import logging
 import time
 import re
@@ -84,6 +86,29 @@ else:
     except OSError as e:
         logger.warning(f"Images directory not writable ({e}); using in-memory store only")
         IS_SERVERLESS = True
+
+
+def _image_bytes_to_data_url(image_bytes: bytes) -> str:
+    """Encode PNG bytes as a data URL for stateless client usage."""
+    return f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+
+def _decode_image_data_url(image_data_url: str) -> bytes:
+    """Decode a data URL into raw image bytes."""
+    if not isinstance(image_data_url, str) or not image_data_url.strip():
+        raise ValueError("image_data_url is empty")
+
+    normalized = image_data_url.strip()
+    if normalized.startswith("data:"):
+        _, _, encoded = normalized.partition(",")
+        if not encoded:
+            raise ValueError("image_data_url is malformed")
+        normalized = encoded
+
+    try:
+        return base64.b64decode(normalized, validate=True)
+    except (binascii.Error, ValueError) as decode_error:
+        raise ValueError("image_data_url is not valid base64") from decode_error
 
 # Initialize LLM
 logger.info("Initializing LLM...")
@@ -1052,6 +1077,7 @@ def generate_image():
         
         # Extract image from response; store in memory (serverless-safe) and optionally on disk
         image_saved = False
+        image_data_url = None
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f'image_{timestamp}.png'
 
@@ -1066,6 +1092,7 @@ def generate_image():
                     image.save(buf, format='PNG')
                     image_bytes = buf.getvalue()
                     IMAGE_STORE[filename] = image_bytes
+                    image_data_url = _image_bytes_to_data_url(image_bytes)
                     if not IS_SERVERLESS:
                         try:
                             IMAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1096,6 +1123,7 @@ def generate_image():
         return jsonify({
             'image_url': image_url,
             'filename': filename,
+            'image_data_url': image_data_url,
             'success': True
         })
     
@@ -1139,10 +1167,11 @@ def edit_image():
         logger.info(f"Request data keys: {list(data.keys()) if data else 'None'}")
         filename = data.get('filename', '')
         changes = data.get('changes', '')
+        image_data_url = data.get('image_data_url', '')
 
-        if not filename:
-            logger.warning("Request missing filename")
-            return jsonify({'error': 'Filename is required'}), 400
+        if not filename and not image_data_url:
+            logger.warning("Request missing filename and image_data_url")
+            return jsonify({'error': 'Either filename or image_data_url is required'}), 400
 
         if not changes:
             logger.warning("Request missing changes")
@@ -1158,17 +1187,25 @@ def edit_image():
             logger.error("Gemini client not initialized")
             return jsonify({'error': 'Gemini client not initialized'}), 500
 
-        # Load image from in-memory store or from disk (local only)
+        # Load image from payload (stateless-safe), in-memory store, or disk (local only)
         image = None
-        if filename in IMAGE_STORE:
+        if image_data_url:
+            try:
+                image = Image.open(BytesIO(_decode_image_data_url(image_data_url)))
+                logger.info("Editing image from request image_data_url")
+            except Exception as decode_error:
+                logger.warning(f"Invalid image_data_url provided: {str(decode_error)}")
+                image = None
+
+        if image is None and filename in IMAGE_STORE:
             image = Image.open(BytesIO(IMAGE_STORE[filename]))
             logger.info(f"Editing image from store: {filename}")
-        elif not IS_SERVERLESS and (IMAGES_DIR / filename).exists():
+        elif image is None and not IS_SERVERLESS and filename and (IMAGES_DIR / filename).exists():
             image = Image.open(IMAGES_DIR / filename)
             logger.info(f"Editing image from disk: {filename}")
         if image is None:
             logger.error(f"Image not found: {filename}")
-            return jsonify({'error': f'File not found: {filename}'}), 404
+            return jsonify({'error': f'File not found: {filename}. On Vercel, pass image_data_url for stateless edits.'}), 404
 
         # Generate a new image based on the existing image and changes
         logger.info("Calling Gemini API for image editing...")
@@ -1189,6 +1226,7 @@ def edit_image():
 
         # Extract the new image from the response; store in memory (serverless-safe)
         image_saved = False
+        edited_image_data_url = None
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         new_filename = f'edited_{timestamp}.png'
 
@@ -1201,7 +1239,9 @@ def edit_image():
                     image = Image.open(BytesIO(part.inline_data.data))
                     buf = BytesIO()
                     image.save(buf, format='PNG')
-                    IMAGE_STORE[new_filename] = buf.getvalue()
+                    edited_bytes = buf.getvalue()
+                    IMAGE_STORE[new_filename] = edited_bytes
+                    edited_image_data_url = _image_bytes_to_data_url(edited_bytes)
                     if not IS_SERVERLESS:
                         try:
                             IMAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -1232,6 +1272,7 @@ def edit_image():
         return jsonify({
             'image_url': image_url,
             'filename': new_filename,
+            'image_data_url': edited_image_data_url,
             'success': True
         })
 

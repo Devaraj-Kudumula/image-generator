@@ -1527,6 +1527,7 @@ Output should read like a refined, publication-ready medical illustration brief 
                 name: name || `Chat ${id}`,
                 history: [],
                 currentImageUrl: null,
+                currentImageDataUrl: null,
                 imageCount: 0
             };
             chats.push(chat);
@@ -1618,6 +1619,8 @@ Output should read like a refined, publication-ready medical illustration brief 
                 }
             });
             chat.currentImageUrl = lastImageUrl;
+            const lastImageEntry = [...chat.history].reverse().find(e => e && e.imageUrl);
+            chat.currentImageDataUrl = lastImageEntry ? (lastImageEntry.imageDataUrl || null) : null;
             chat.imageCount = count;
             renderConversation();
             updateDownloadButtonVisibility();
@@ -1680,11 +1683,12 @@ Output should read like a refined, publication-ready medical illustration brief 
                 }
 
                 if (entry.role === 'assistant' && entry.imageUrl) {
+                    const displaySrc = entry.imageDataUrl || entry.imageUrl;
                     const img = document.createElement('img');
-                    img.src = entry.imageUrl;
+                    img.src = displaySrc;
                     img.className = 'message-image';
                     img.alt = entry.type === 'edited_image' ? 'Edited image' : 'Generated image';
-                    img.onclick = () => openImageFullscreen(entry.imageUrl, entry.sourcePrompt ? 'Prompt: ' + entry.sourcePrompt.slice(0, 80) + '…' : (entry.meta || 'Image'));
+                    img.onclick = () => openImageFullscreen(displaySrc, entry.sourcePrompt ? 'Prompt: ' + entry.sourcePrompt.slice(0, 80) + '…' : (entry.meta || 'Image'));
                     bubble.appendChild(img);
                     if (entry.meta) {
                         const metaEl = document.createElement('div');
@@ -1766,8 +1770,9 @@ Output should read like a refined, publication-ready medical illustration brief 
                 const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
                 const data = await response.json();
                 if (response.ok) {
-                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, filename: data.filename, type: 'image', sourcePrompt: prompt, meta: 'Generated image' });
-                    displayImage(data.image_url);
+                    const displaySrc = data.image_data_url || data.image_url;
+                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'image', sourcePrompt: prompt, meta: 'Generated image' });
+                    displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
                     showSuccess('imageSuccess', 'Image regenerated from edited prompt.');
                 } else {
                     showError('imageError', data.error || 'Failed to regenerate image');
@@ -1786,13 +1791,14 @@ Output should read like a refined, publication-ready medical illustration brief 
             if (!entry || entry.role !== 'user' || entry.type !== 'edit_request') return;
             if (entryIndex === 0) return;
             const prevEntry = chat.history[entryIndex - 1];
-            if (!prevEntry || !prevEntry.imageUrl) {
+            if (!prevEntry || (!prevEntry.imageUrl && !prevEntry.imageDataUrl)) {
                 showError('imageError', 'Previous image not found for edit.');
                 return;
             }
             const prevFilename = prevEntry.filename || (prevEntry.imageUrl ? prevEntry.imageUrl.split('/').pop() : null);
-            if (!prevFilename) {
-                showError('imageError', 'Previous image filename missing.');
+            const prevImageDataUrl = prevEntry.imageDataUrl || prevEntry.imageUrl;
+            if (!prevFilename && !prevImageDataUrl) {
+                showError('imageError', 'Previous image reference missing.');
                 return;
             }
             const changes = entry.text;
@@ -1803,11 +1809,12 @@ Output should read like a refined, publication-ready medical illustration brief 
             errorDiv.classList.remove('active');
             successDiv.classList.remove('active');
             try {
-                const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: prevFilename, changes }) });
+                const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: prevFilename, image_data_url: prevImageDataUrl, changes }) });
                 const data = await response.json();
                 if (response.ok) {
-                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
-                    displayImage(data.image_url);
+                    const displaySrc = data.image_data_url || data.image_url;
+                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
+                    displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
                     showSuccess('imageSuccess', 'Edit reapplied from updated request.');
                 } else {
                     showError('imageError', data.error || 'Failed to re-apply edit');
@@ -1825,13 +1832,14 @@ Output should read like a refined, publication-ready medical illustration brief 
                 return;
             }
             const entry = getHistoryEntryByIndex(entryIndex);
-            if (!entry || !entry.imageUrl) {
+            if (!entry || (!entry.imageUrl && !entry.imageDataUrl)) {
                 showError('imageError', 'This image cannot be edited (missing reference).');
                 return;
             }
             const filename = entry.filename || (entry.imageUrl ? entry.imageUrl.split('/').pop() : null);
-            if (!filename) {
-                showError('imageError', 'This image cannot be edited (missing filename).');
+            const imageDataUrl = entry.imageDataUrl || entry.imageUrl;
+            if (!filename && !imageDataUrl) {
+                showError('imageError', 'This image cannot be edited (missing reference).');
                 return;
             }
             const btn = document.querySelector(`[data-entry-index="${entryIndex}"] .inline-apply-changes-btn`);
@@ -1844,11 +1852,12 @@ Output should read like a refined, publication-ready medical illustration brief 
             successDiv.classList.remove('active');
             addConversationEntry({ role: 'user', text: changes, type: 'edit_request' });
             try {
-                const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, changes }) });
+                const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, image_data_url: imageDataUrl, changes }) });
                 const data = await response.json();
                 if (response.ok) {
-                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
-                    displayImage(data.image_url);
+                    const displaySrc = data.image_data_url || data.image_url;
+                    addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
+                    displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
                     showSuccess('imageSuccess', 'Changes applied.');
                 } else {
                     showError('imageError', data.error || 'Failed to update image');
@@ -2145,10 +2154,12 @@ Output should read like a refined, publication-ready medical illustration brief 
                 const data = await response.json();
 
                 if (response.ok) {
-                    displayImage(data.image_url);
+                    const displaySrc = data.image_data_url || data.image_url;
+                    displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
                     addConversationEntry({
                         role: 'assistant',
                         imageUrl: data.image_url,
+                        imageDataUrl: data.image_data_url || null,
                         filename: data.filename,
                         type: 'image',
                         sourcePrompt: prompt,
@@ -2166,12 +2177,13 @@ Output should read like a refined, publication-ready medical illustration brief 
             }
         }
 
-        function displayImage(imageUrl) {
+        function displayImage(imageSrc, imageDataUrl, canonicalUrl) {
             let chat = getActiveChat();
             if (!chat) {
                 chat = createNewChat();
             }
-            chat.currentImageUrl = imageUrl;
+            chat.currentImageUrl = canonicalUrl || imageSrc;
+            chat.currentImageDataUrl = imageDataUrl || (typeof imageSrc === 'string' && imageSrc.startsWith('data:') ? imageSrc : null);
             chat.imageCount = (chat.imageCount || 0) + 1;
 
             // Update pinned preview
@@ -2179,7 +2191,7 @@ Output should read like a refined, publication-ready medical illustration brief 
             const previewEmpty = document.getElementById('imagePreviewEmpty');
             const previewMeta = document.getElementById('imagePreviewMeta');
             if (previewImg) {
-                previewImg.src = imageUrl;
+                previewImg.src = imageSrc;
                 previewImg.classList.add('visible');
             }
             if (previewEmpty) {
@@ -2196,11 +2208,11 @@ Output should read like a refined, publication-ready medical illustration brief 
         }
 
         function downloadImage() {
-            const currentUrl = getCurrentImageUrl();
-            if (!currentUrl) return;
+            const currentSrc = getCurrentImageDataUrl() || getCurrentImageUrl();
+            if (!currentSrc) return;
 
             const link = document.createElement('a');
-            link.href = currentUrl;
+            link.href = currentSrc;
             link.download = `generated-image-${Date.now()}.png`;
             document.body.appendChild(link);
             link.click();
@@ -2225,6 +2237,11 @@ Output should read like a refined, publication-ready medical illustration brief 
         function getCurrentImageUrl() {
             const chat = getActiveChat();
             return chat ? chat.currentImageUrl : null;
+        }
+
+        function getCurrentImageDataUrl() {
+            const chat = getActiveChat();
+            return chat ? chat.currentImageDataUrl : null;
         }
 
         function updateDownloadButtonVisibility() {
