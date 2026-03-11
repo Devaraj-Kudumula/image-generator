@@ -5,8 +5,8 @@ import sys
 import logging
 import time
 import re
-from datetime import datetime
 import requests
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from io import BytesIO
@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.documents import Document
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_community.utilities import GoogleSerperAPIWrapper
 from pymongo import MongoClient
 
 # Google Gemini for image generation
@@ -118,6 +120,12 @@ DB_NAME = "medical_vector_db"
 COLLECTION_NAME = "vector_chunks_embeds"
 INDEX_NAME = "default"
 NO_RAG_OPTION_VALUE = "NO_RAG"
+WEB_RETRIEVAL_OPTION_VALUE = "WEB_RETRIEVAL"
+WEB_RETRIEVAL_RESULT_COUNT = 10
+SERPER_API_KEY = (
+    os.getenv("SERPER_API_KEY")
+    or "8a46c8ecdb405e3ed59ef2655fd7ec228f46792e"
+).strip()
 
 # Log MongoDB connection details (masked)
 if MONGODB_URI:
@@ -132,6 +140,16 @@ vectorstore = None
 retriever = None
 known_doc_names: List[str] = []
 mongo_client = None
+google_serper_wrapper: Optional[GoogleSerperAPIWrapper] = None
+
+if SERPER_API_KEY:
+    try:
+        google_serper_wrapper = GoogleSerperAPIWrapper(serper_api_key=SERPER_API_KEY)
+        logger.info("✓ GoogleSerperAPIWrapper initialized for web retrieval fallback")
+    except Exception as e:
+        logger.warning(f"Could not initialize GoogleSerperAPIWrapper: {str(e)}")
+else:
+    logger.info("Serper API key not configured")
 
 
 def _fetch_distinct_doc_names() -> List[str]:
@@ -347,6 +365,228 @@ def _is_no_rag_selected(selected_doc_names: Any) -> bool:
     )
 
 
+def _is_web_retrieval_selected(selected_doc_names: Any) -> bool:
+    if not isinstance(selected_doc_names, list):
+        return False
+    return any(
+        isinstance(name, str) and name.strip().upper() == WEB_RETRIEVAL_OPTION_VALUE
+        for name in selected_doc_names
+    )
+
+
+def _normalize_selected_sources(selected_doc_names: Any) -> List[str]:
+    """Preserve selected sources while validating known document names."""
+    if not isinstance(selected_doc_names, list):
+        return []
+
+    normalized_sources: List[str] = []
+    if _is_no_rag_selected(selected_doc_names):
+        return [NO_RAG_OPTION_VALUE]
+    if _is_web_retrieval_selected(selected_doc_names):
+        normalized_sources.append(WEB_RETRIEVAL_OPTION_VALUE)
+
+    sanitized_doc_names = _sanitize_selected_doc_names(selected_doc_names)
+    normalized_sources.extend(sanitized_doc_names)
+    return normalized_sources
+
+
+def _should_run_doc_retrieval(raw_selected_sources: Any, sanitized_doc_names: List[str], web_selected: bool) -> bool:
+    """Decide whether vector retrieval should run based on selected sources."""
+    if sanitized_doc_names:
+        return True
+    if not isinstance(raw_selected_sources, list) or len(raw_selected_sources) == 0:
+        return True
+
+    normalized = [str(value).strip().upper() for value in raw_selected_sources if isinstance(value, str)]
+    non_special_selected = [
+        value for value in normalized
+        if value not in {NO_RAG_OPTION_VALUE, WEB_RETRIEVAL_OPTION_VALUE}
+    ]
+    if non_special_selected:
+        return True
+
+    # If only WEB_RETRIEVAL is selected, skip vector retrieval.
+    if web_selected and len(normalized) == 1 and normalized[0] == WEB_RETRIEVAL_OPTION_VALUE:
+        return False
+
+    return True
+
+
+def _strip_html_to_text(html: str) -> str:
+    """Convert raw HTML into plain text with light cleanup."""
+    content = re.sub(r"(?is)<script.*?>.*?</script>", " ", html)
+    content = re.sub(r"(?is)<style.*?>.*?</style>", " ", content)
+    content = re.sub(r"(?is)<[^>]+>", " ", content)
+    content = re.sub(r"\s+", " ", content)
+    return content.strip()
+
+
+def _fetch_webpage_text(url: str, timeout_sec: int = 10, max_chars: int = 2500) -> str:
+    """Fetch and extract plain text from a webpage URL using LangChain loader."""
+    try:
+        loader = WebBaseLoader(
+            web_paths=[url],
+            requests_kwargs={"timeout": timeout_sec},
+        )
+        loaded_docs = loader.load()
+        if not loaded_docs:
+            return ""
+        text = re.sub(r"\s+", " ", loaded_docs[0].page_content or "").strip()
+        if len(text) > max_chars:
+            return text[:max_chars] + "..."
+        return text
+    except Exception as e:
+        logger.warning(f"Could not fetch webpage text for '{url}': {str(e)}")
+        return ""
+
+
+def _search_web_with_langchain(query: str, max_results: int = WEB_RETRIEVAL_RESULT_COUNT) -> List[Dict[str, str]]:
+    """Run Google CSE through LangChain wrapper and normalize results."""
+    def _search_web_with_serper(query_text: str, result_limit: int) -> List[Dict[str, str]]:
+        def _search_web_with_serper_direct() -> List[Dict[str, str]]:
+            if not SERPER_API_KEY:
+                return []
+
+            try:
+                response = requests.post(
+                    "https://google.serper.dev/search",
+                    headers={
+                        "X-API-KEY": SERPER_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "q": query_text,
+                        "gl": "us",
+                        "hl": "en",
+                        "num": max(1, min(result_limit, 10)),
+                    },
+                    timeout=12,
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except requests.HTTPError:
+                logger.warning(
+                    f"Direct Serper request failed with HTTP {response.status_code}: {response.text[:200]}"
+                )
+                return []
+            except Exception as direct_serper_error:
+                logger.warning(f"Direct Serper request failed: {str(direct_serper_error)}")
+                return []
+
+            normalized_direct_results: List[Dict[str, str]] = []
+            for item in (payload.get("organic") or []):
+                if not isinstance(item, dict):
+                    continue
+                link = str(item.get("link") or "").strip()
+                title = str(item.get("title") or "").strip()
+                snippet = str(item.get("snippet") or "").strip()
+                if not link:
+                    continue
+                normalized_direct_results.append({
+                    "link": link,
+                    "title": title,
+                    "snippet": snippet,
+                })
+
+            logger.info(f"Direct Serper request returned {len(normalized_direct_results)} results")
+            return normalized_direct_results
+
+        if google_serper_wrapper is None:
+            logger.warning("GoogleSerperAPIWrapper unavailable; trying direct Serper request")
+            return _search_web_with_serper_direct()
+
+        try:
+            results = google_serper_wrapper.results(query_text)
+        except Exception as serper_error:
+            logger.warning(f"GoogleSerperAPIWrapper search failed: {str(serper_error)}; trying direct Serper request")
+            return _search_web_with_serper_direct()
+
+        # .results() returns a dict {"organic": [...], ...} — extract the list
+        organic = results.get("organic") or [] if isinstance(results, dict) else (results or [])
+
+        normalized_results: List[Dict[str, str]] = []
+        for item in organic:
+            if not isinstance(item, dict):
+                continue
+            link = str(item.get("link") or "").strip()
+            title = str(item.get("title") or "").strip()
+            snippet = str(item.get("snippet") or item.get("text") or "").strip()
+            if not link:
+                continue
+            normalized_results.append({
+                "link": link,
+                "title": title,
+                "snippet": snippet,
+            })
+            if len(normalized_results) >= max(1, min(result_limit, 10)):
+                break
+
+        logger.info(f"GoogleSerperAPIWrapper returned {len(normalized_results)} results")
+        return normalized_results
+
+    return _search_web_with_serper(query, max_results)
+
+
+def _retrieve_web_docs(query: str, max_results: int = WEB_RETRIEVAL_RESULT_COUNT) -> List[Document]:
+    """Retrieve web search results and extracted content through LangChain tools."""
+    items = _search_web_with_langchain(query, max_results=max_results)
+    if not items:
+        return []
+
+    try:
+        docs: List[Document] = []
+
+        for item in items:
+            link = (item.get("link") or "").strip()
+            title = (item.get("title") or "").strip()
+            snippet = (item.get("snippet") or "").strip()
+            if not link:
+                continue
+
+            extracted_text = _fetch_webpage_text(link)
+            content_parts = []
+            if title:
+                content_parts.append(f"Title: {title}")
+            if snippet:
+                content_parts.append(f"Snippet: {snippet}")
+            if extracted_text:
+                content_parts.append(f"Extracted Content: {extracted_text}")
+
+            combined_content = "\n".join(content_parts).strip()
+            if not combined_content:
+                continue
+
+            docs.append(Document(
+                page_content=combined_content,
+                metadata={
+                    "source_type": "web",
+                    "url": link,
+                    "title": title,
+                },
+            ))
+
+        logger.info(f"Web retrieval returned {len(docs)} documents")
+        return docs
+    except Exception as e:
+        logger.warning(f"Web retrieval failed: {str(e)}")
+        return []
+
+
+def _build_combined_context(vector_docs: List[Document], web_docs: List[Document]) -> str:
+    """Build the single context string expected by prompt synthesis with clear separators."""
+    sections: List[str] = []
+
+    if vector_docs:
+        retrieved_chunks = "\n\n".join(doc.page_content for doc in vector_docs if getattr(doc, "page_content", ""))
+        sections.append(f"Retrieved Chunks:\n{retrieved_chunks}")
+
+    if web_docs:
+        web_content = "\n\n".join(doc.page_content for doc in web_docs if getattr(doc, "page_content", ""))
+        sections.append(f"Web Retrieved Content:\n{web_content}")
+
+    return "\n\n==============================\n\n".join(section for section in sections if section.strip())
+
+
 def _build_structured_retrieval_query(user_question: str) -> str:
     """Build a concise clinical retrieval query from the raw user question."""
     base_question = (user_question or "").strip()
@@ -454,40 +694,65 @@ def re_run_retrieval():
         data = request.get_json()
         search_query = (data or {}).get('search_query', '').strip()
         raw_selected_doc_names = (data or {}).get('selected_doc_names')
+        web_retrieval_selected = _is_web_retrieval_selected(raw_selected_doc_names)
         disable_rag = bool((data or {}).get('disable_rag')) or _is_no_rag_selected(raw_selected_doc_names)
         selected_doc_names = _sanitize_selected_doc_names(raw_selected_doc_names)
+        selected_sources = _normalize_selected_sources(raw_selected_doc_names)
+        run_doc_retrieval = _should_run_doc_retrieval(raw_selected_doc_names, selected_doc_names, web_retrieval_selected)
         if not search_query:
             return jsonify({'error': 'search_query is required and must be non-empty'}), 400
         if disable_rag:
             return jsonify({'error': 'Retrieval is disabled when NO RAG is selected'}), 400
-        if not retriever:
+        if run_doc_retrieval and not retriever:
             return jsonify({'error': 'RAG retriever not available'}), 503
         retrieval_query = _build_structured_retrieval_query(search_query)
         logger.info(f"Re-running retrieval with structured query: {retrieval_query[:120]}...")
-        if selected_doc_names:
-            logger.info(f"Using selected doc_name filters: {selected_doc_names}")
-        docs = _retrieve_docs_with_timeout(
-            retrieval_query,
-            selected_doc_names=selected_doc_names,
-            total_k=10,
-        )
+        vector_docs: List[Document] = []
+        web_docs: List[Document] = []
+
+        if run_doc_retrieval:
+            if selected_doc_names:
+                logger.info(f"Using selected doc_name filters: {selected_doc_names}")
+            vector_docs = _retrieve_docs_with_timeout(
+                retrieval_query,
+                selected_doc_names=selected_doc_names,
+                total_k=10,
+            )
+
+        if web_retrieval_selected:
+            web_docs = _retrieve_web_docs(
+                retrieval_query,
+                max_results=WEB_RETRIEVAL_RESULT_COUNT,
+            )
+
+        docs: List[Document] = []
+        docs.extend(vector_docs)
+        docs.extend(web_docs)
+
         if not docs:
             return jsonify({
                 'search_query': retrieval_query,
                 'chunks': [],
-                'selected_doc_names': selected_doc_names,
+                'selected_doc_names': selected_sources,
                 'message': 'No documents found for this query'
             }), 200
-        chunks_payload = [
-            {"content": doc.page_content, "metadata": getattr(doc, "metadata", {}) or {}}
-            for doc in docs
-        ]
+
+        chunks_payload = []
+        for doc in vector_docs:
+            metadata = getattr(doc, "metadata", {}) or {}
+            metadata["source_type"] = metadata.get("source_type") or "vector"
+            chunks_payload.append({"content": doc.page_content, "metadata": metadata})
+        for doc in web_docs:
+            metadata = getattr(doc, "metadata", {}) or {}
+            metadata["source_type"] = metadata.get("source_type") or "web"
+            chunks_payload.append({"content": doc.page_content, "metadata": metadata})
+
         elapsed = time.time() - request_start
         logger.info(f"[/re-run-retrieval] Returned {len(chunks_payload)} chunks in {elapsed:.2f}s")
         return jsonify({
             'search_query': retrieval_query,
             'chunks': chunks_payload,
-            'selected_doc_names': selected_doc_names,
+            'selected_doc_names': selected_sources,
         }), 200
     except TimeoutError as e:
         return jsonify({'error': str(e)}), 504
@@ -512,8 +777,11 @@ def generate_prompt():
         system_instruction = data.get('system_instruction', '')
         user_question = data.get('user_question', 'A serene landscape at sunset')
         raw_selected_doc_names = (data or {}).get('selected_doc_names')
+        web_retrieval_selected = _is_web_retrieval_selected(raw_selected_doc_names)
         disable_rag = bool((data or {}).get('disable_rag')) or _is_no_rag_selected(raw_selected_doc_names)
         selected_doc_names = _sanitize_selected_doc_names(raw_selected_doc_names)
+        selected_sources = _normalize_selected_sources(raw_selected_doc_names)
+        run_doc_retrieval = _should_run_doc_retrieval(raw_selected_doc_names, selected_doc_names, web_retrieval_selected)
         
         if not system_instruction:
             logger.warning("Request missing system instruction")
@@ -535,8 +803,8 @@ def generate_prompt():
             and len(override_chunks) > 0
         )
 
-        # Use RAG if retriever is available and NO RAG mode is not selected
-        if retriever and not disable_rag:
+        # Use retrieval pipeline when vector retriever or web retrieval is available and NO RAG mode is not selected
+        if (retriever is not None or web_retrieval_selected) and not disable_rag:
             logger.info("Attempting RAG retrieval with timeout protection...")
             try:
                 if use_provided_context:
@@ -547,21 +815,65 @@ def generate_prompt():
                         for c in override_chunks
                     ]
                     logger.info(f"Using provided context: query length {len(retrieval_query)}, {len(docs)} chunks")
+                    vector_docs = [
+                        doc for doc in docs
+                        if isinstance(getattr(doc, "metadata", {}), dict)
+                        and (getattr(doc, "metadata", {}) or {}).get("source_type") != "web"
+                    ]
+                    web_docs = [
+                        doc for doc in docs
+                        if isinstance(getattr(doc, "metadata", {}), dict)
+                        and (getattr(doc, "metadata", {}) or {}).get("source_type") == "web"
+                    ]
                 else:
                     # Retrieve documents with timeout protection (20 seconds for cold starts)
                     retrieval_query = structured_user_query
-                    logger.info("Starting similarity retrieval from structured query...")
-                    if selected_doc_names:
-                        logger.info(f"Applying selected doc_name filters: {selected_doc_names}")
-                    docs = _retrieve_docs_with_timeout(
-                        retrieval_query,
-                        timeout_sec=20,
-                        selected_doc_names=selected_doc_names,
-                        total_k=10,
-                    )
+                    vector_docs = []
+                    web_docs = []
+
+                    if run_doc_retrieval:
+                        logger.info("Starting similarity retrieval from structured query...")
+                        if selected_doc_names:
+                            logger.info(f"Applying selected doc_name filters: {selected_doc_names}")
+                        vector_docs = _retrieve_docs_with_timeout(
+                            retrieval_query,
+                            timeout_sec=20,
+                            selected_doc_names=selected_doc_names,
+                            total_k=10,
+                        )
+
+                    if web_retrieval_selected:
+                        logger.info("Starting web retrieval from structured query...")
+                        web_docs = _retrieve_web_docs(
+                            retrieval_query,
+                            max_results=WEB_RETRIEVAL_RESULT_COUNT,
+                        )
+
+                    docs = []
+                    docs.extend(vector_docs)
+                    docs.extend(web_docs)
                     if not docs:
-                        logger.warning("⚠ No documents retrieved, using direct generation")
-                        raise ValueError("No documents found")
+                        logger.info("No documents retrieved; switching to direct prompt generation")
+                        response = llm.invoke([
+                            {"role": "system", "content": system_instruction},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
+                                    f"Structured Clinical Query: {structured_user_query}\n"
+                                    f"Original User Question: {user_question}"
+                                )
+                            }
+                        ])
+                        generated_prompt = response.content.strip()
+                        return jsonify({
+                            'prompt': generated_prompt,
+                            'success': True,
+                            'search_query': structured_user_query,
+                            'selected_doc_names': selected_sources,
+                            'disable_rag': False,
+                            'chunks': [],
+                        })
                     logger.info(f"✓ Retrieved {len(docs)} documents in time")
                     doc_names = sorted({_extract_doc_name_from_doc(doc) for doc in docs if _extract_doc_name_from_doc(doc)})
                     if doc_names:
@@ -569,7 +881,7 @@ def generate_prompt():
                     if docs:
                         logger.info(f"Doc 1: {docs[0].page_content[:80]}...")
                 
-                context = "\n\n".join([doc.page_content for doc in docs])
+                context = _build_combined_context(vector_docs, web_docs)
                 logger.info(f"Context assembled ({len(context)} chars)")
                 
                 # Build final prompt with RAG context
@@ -596,15 +908,21 @@ def generate_prompt():
                 logger.info(f"✓ Generated prompt with RAG ({len(generated_prompt)} chars)")
                 
                 # Include RAG pipeline details for the frontend
-                chunks_payload = [
-                    {"content": doc.page_content, "metadata": getattr(doc, "metadata", {}) or {}}
-                    for doc in docs
-                ]
+                chunks_payload = []
+                for doc in vector_docs:
+                    metadata = getattr(doc, "metadata", {}) or {}
+                    metadata["source_type"] = metadata.get("source_type") or "vector"
+                    chunks_payload.append({"content": doc.page_content, "metadata": metadata})
+                for doc in web_docs:
+                    metadata = getattr(doc, "metadata", {}) or {}
+                    metadata["source_type"] = metadata.get("source_type") or "web"
+                    chunks_payload.append({"content": doc.page_content, "metadata": metadata})
+
                 return jsonify({
                     'prompt': generated_prompt,
                     'success': True,
                     'search_query': retrieval_query,
-                    'selected_doc_names': selected_doc_names,
+                    'selected_doc_names': selected_sources,
                     'disable_rag': False,
                     'chunks': chunks_payload,
                 })
@@ -667,7 +985,7 @@ def generate_prompt():
             'prompt': generated_prompt,
             'success': True,
             'search_query': structured_user_query,
-            'selected_doc_names': selected_doc_names,
+            'selected_doc_names': selected_sources,
             'disable_rag': disable_rag,
             'chunks': [],
         })
