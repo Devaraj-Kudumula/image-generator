@@ -15,4 +15,4 @@ env/
 Thumbs.db
 
 /generated_images
-/static
+/static/images/
