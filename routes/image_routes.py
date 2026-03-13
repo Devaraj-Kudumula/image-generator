@@ -215,3 +215,91 @@ def register(app):
             return jsonify({
                 'error': f'Error editing image: {str(e)}'
             }), 500
+
+    @app.route('/get-accurate', methods=['POST'])
+    def get_accurate():
+        """
+        Detect label/arrow flaws in an image with GPT-4o vision, then fix them
+        iteratively using Gemini (max 3 flaws per pass, max 5 passes).
+        """
+        request_start = time.time()
+        logger.info("=" * 50)
+        logger.info("[/get-accurate] Request received")
+
+        try:
+            data = request.get_json()
+            logger.info(
+                "Request data keys: %s",
+                list(data.keys()) if data else 'None',
+            )
+            filename = data.get('filename', '')
+            image_data_url = data.get('image_data_url', '')
+
+            if not filename and not image_data_url:
+                logger.warning("Request missing filename and image_data_url")
+                return jsonify({
+                    'error': 'Either filename or image_data_url is required'
+                }), 400
+
+            if not config.GOOGLE_API_KEY:
+                logger.error("Google API key not configured")
+                return jsonify({
+                    'error': 'Google Generative AI API key not configured.'
+                }), 500
+
+            if not state.gemini_client:
+                logger.error("Gemini client not initialized")
+                return jsonify({'error': 'Gemini client not initialized'}), 500
+
+            logger.info("Running accuracy refinement for: %s", filename)
+            api_start = time.time()
+
+            try:
+                final_filename, final_bytes, final_data_url, flaws_count, iterations = (
+                    image_service.get_accurate_image(
+                        filename, image_data_url or None
+                    )
+                )
+            except ValueError as e:
+                msg = str(e)
+                if "File not found" in msg:
+                    return jsonify({'error': msg}), 404
+                return jsonify({'error': msg}), 500
+
+            api_time = time.time() - api_start
+            logger.info(
+                "Accuracy refinement done in %.2fs — %d flaw(s), %d pass(es)",
+                api_time, flaws_count, iterations,
+            )
+
+            image_url = (
+                final_data_url
+                if config.IS_SERVERLESS and final_data_url
+                else f'{request.host_url}images/{final_filename}'
+            )
+
+            request_time = time.time() - request_start
+            logger.info("[/get-accurate] Success in %.2fs", request_time)
+            logger.info("=" * 50)
+
+            return jsonify({
+                'image_url': image_url,
+                'filename': final_filename,
+                'image_data_url': final_data_url,
+                'flaws_detected': flaws_count,
+                'iterations': iterations,
+                'success': True,
+            })
+
+        except Exception as e:
+            request_time = time.time() - request_start
+            logger.error(
+                "[/get-accurate] Error after %.2fs: %s",
+                request_time,
+                e,
+            )
+            logger.error(traceback.format_exc())
+            logger.info("=" * 50)
+            return jsonify({
+                'error': f'Error during accuracy refinement: {str(e)}'
+            }), 500

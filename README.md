@@ -80,9 +80,11 @@ Turn clinical ideas into exam-ready medical illustrations. The app uses an LLM (
 - **`routes/main_routes.py`**: `/` (serves `index.html`) and `/health` (reports config/RAG readiness).
 - **`routes/rag_routes.py`**: `/generate-prompt`, `/re-run-retrieval`, `/doc-names` for RAG-driven prompt generation and retrieval control.
 - **`routes/image_routes.py`**: `/generate-image`, `/edit-image`, `/images/<filename>` for image generation, editing, and serving.
+  It also exposes `/get-accurate`, which runs a multi-step accuracy refinement loop:
+  GPT-4o vision first detects labeling/arrow flaws in an image, then Gemini applies up to five targeted correction passes.
 
 - **`services/rag_service.py`**: Implements retrieval logic (doc name validation, NO RAG / WEB_RETRIEVAL flags, Serper + web scraping, vector search, context assembly, structured retrieval query building).
-- **`services/image_service.py`**: Implements Gemini-based image generation and editing, plus in-memory/disk storage and retrieval of image bytes.
+- **`services/image_service.py`**: Implements Gemini-based image generation and editing, the `/get-accurate` iterative flaw-detection-and-fix pipeline, plus in-memory/disk storage and retrieval of image bytes.
 
 - **`index.html`**: Single-page UI with system instruction, question, RAG controls, editable prompt, image preview, chat sessions, and full-screen image viewer.
 - **`static/app.js`**: Frontend logic for theme toggle, chat sessions, RAG controls, calling `/generate-prompt`, `/re-run-retrieval`, `/generate-image`, `/edit-image`, and updating the UI.

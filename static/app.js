@@ -321,10 +321,12 @@ function renderConversation() {
             }
             const inlineEdit = document.createElement('div');
             inlineEdit.className = 'message-edit-inline';
-            inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button></div>';
+            inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-btn">Get Accurate</button></div>';
             const changeTa = inlineEdit.querySelector('.inline-changes-textarea');
             const applyBtn = inlineEdit.querySelector('.inline-apply-changes-btn');
+            const accurateBtn = inlineEdit.querySelector('.inline-get-accurate-btn');
             applyBtn.onclick = () => applyChangesToImage(idx, changeTa.value.trim());
+            accurateBtn.onclick = () => getAccurateImage(idx);
             bubble.appendChild(inlineEdit);
         }
 
@@ -495,6 +497,75 @@ async function applyChangesToImage(entryIndex, changes) {
         renderConversation();
     } finally {
         if (btn) btn.disabled = false;
+        loading.classList.remove('active');
+    }
+}
+
+async function getAccurateImage(entryIndex) {
+    const entry = getHistoryEntryByIndex(entryIndex);
+    if (!entry || (!entry.imageUrl && !entry.imageDataUrl)) {
+        showError('imageError', 'This image cannot be processed (missing reference).');
+        return;
+    }
+    const filename = entry.filename || (entry.imageUrl ? entry.imageUrl.split('/').pop() : null);
+    const imageDataUrl = entry.imageDataUrl || entry.imageUrl;
+    if (!filename && !imageDataUrl) {
+        showError('imageError', 'This image cannot be processed (missing reference).');
+        return;
+    }
+
+    const btn = document.querySelector(`[data-entry-index="${entryIndex}"] .inline-get-accurate-btn`);
+    const applyBtn = document.querySelector(`[data-entry-index="${entryIndex}"] .inline-apply-changes-btn`);
+    if (btn) btn.disabled = true;
+    if (applyBtn) applyBtn.disabled = true;
+
+    const loading = document.getElementById('imageLoading');
+    const errorDiv = document.getElementById('imageError');
+    const successDiv = document.getElementById('imageSuccess');
+    loading.classList.add('active');
+    errorDiv.classList.remove('active');
+    successDiv.classList.remove('active');
+
+    addConversationEntry({ role: 'user', text: 'Get Accurate: detecting and correcting label/arrow flaws…', type: 'get_accurate_request' });
+
+    try {
+        const response = await fetch('/get-accurate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename, image_data_url: imageDataUrl })
+        });
+        const data = await response.json();
+        if (response.ok) {
+            const displaySrc = data.image_data_url || data.image_url;
+            const flaws = data.flaws_detected || 0;
+            const iters = data.iterations || 0;
+            const metaLabel = flaws > 0
+                ? `Accurate image (${flaws} flaw${flaws !== 1 ? 's' : ''} fixed in ${iters} pass${iters !== 1 ? 'es' : ''})`
+                : 'Accurate image (no flaws detected)';
+            addConversationEntry({
+                role: 'assistant',
+                imageUrl: data.image_url,
+                imageDataUrl: data.image_data_url || null,
+                filename: data.filename,
+                type: 'accurate_image',
+                meta: metaLabel
+            });
+            displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
+            showSuccess('imageSuccess', flaws > 0 ? `Accuracy refined: ${flaws} flaw(s) corrected.` : 'No flaws found — image is accurate.');
+        } else {
+            showError('imageError', data.error || 'Failed to refine image accuracy');
+            const chat = getActiveChat();
+            if (chat && chat.history.length) chat.history.pop();
+            renderConversation();
+        }
+    } catch (e) {
+        showError('imageError', 'Error: ' + (e.message || 'Network error'));
+        const chat = getActiveChat();
+        if (chat && chat.history.length) chat.history.pop();
+        renderConversation();
+    } finally {
+        if (btn) btn.disabled = false;
+        if (applyBtn) applyBtn.disabled = false;
         loading.classList.remove('active');
     }
 }
