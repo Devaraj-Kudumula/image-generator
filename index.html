@@ -146,9 +146,24 @@ Output should read like a refined, publication-ready medical illustration brief 
                         </div>
                     </div>
 
+                    <!-- Upload image + create image from edits -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Upload Image And Create Image</div>
+                            <span>Use your own input image</span>
+                        </div>
+                        <div class="helper-text">Upload any image, describe the changes, and generate a revised image in the same chat flow.</div>
+                        <div class="upload-edit-grid">
+                            <input id="uploadImageInput" class="upload-file-input" type="file" accept="image/png,image/jpeg,image/webp" />
+                            <textarea id="uploadImageChanges" rows="3" placeholder="Describe exactly how to edit the uploaded image..."></textarea>
+                            <button onclick="uploadAndEditImage()" id="uploadEditBtn">Create Image</button>
+                            <div id="uploadEditProgress" class="upload-progress" aria-live="polite"></div>
+                        </div>
+                    </div>
+
                 </div>
 
-                <!-- Secondary column: preview + chat history -->
+                <!-- Secondary column: preview + history + compact metrics -->
                 <div class="column">
                     <!-- Live image preview -->
                     <div class="section">
@@ -192,6 +207,52 @@ Output should read like a refined, publication-ready medical illustration brief 
                                 Download latest image
                             </button>
                         </div>
+                    </div>
+
+                    <!-- LLM usage metrics (compact footer panel) -->
+                    <div class="section llm-metrics-compact">
+                        <div class="llm-metrics-header-row">
+                            <div class="section-title">LLM Metrics</div>
+                            <div class="llm-total-calls-chip">
+                                Calls: <span id="totalCallsValue">0</span>
+                            </div>
+                        </div>
+
+                        <details class="llm-expand-item" id="tokensMetricsDetails">
+                            <summary class="llm-expand-summary">
+                                <span class="llm-expand-label">Tokens</span>
+                                <span class="llm-expand-total" id="totalTokensValue">0</span>
+                            </summary>
+                            <div class="llm-expand-body">
+                                <div class="llm-breakdown-row">
+                                    <span>GPT</span>
+                                    <span id="gptTokensValue">0</span>
+                                </div>
+                                <div class="llm-breakdown-row">
+                                    <span>Gemini</span>
+                                    <span id="geminiTokensValue">0</span>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="llm-expand-item" id="costMetricsDetails">
+                            <summary class="llm-expand-summary">
+                                <span class="llm-expand-label">Cost (USD)</span>
+                                <span class="llm-expand-total" id="totalCostValue">$0.000000</span>
+                            </summary>
+                            <div class="llm-expand-body">
+                                <div class="llm-breakdown-row">
+                                    <span>GPT</span>
+                                    <span id="gptCostValue">$0.000000</span>
+                                </div>
+                                <div class="llm-breakdown-row">
+                                    <span>Gemini</span>
+                                    <span id="geminiCostValue">$0.000000</span>
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="llm-metrics-note" id="llmMetricsNote">Estimated from configured pricing rates.</div>
                     </div>
                 </div>
             </div>

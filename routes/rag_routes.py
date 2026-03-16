@@ -13,8 +13,16 @@ import config
 from app_state import state
 from db import fetch_distinct_doc_names
 from services import rag_service
+from services.llm_metrics_service import record_langchain_openai_call
 
 logger = logging.getLogger(__name__)
+
+
+def _invoke_openai_and_track(messages):
+    response = state.llm.invoke(messages)
+    model_name = getattr(state.llm, "model_name", None) or "gpt-4"
+    record_langchain_openai_call(response, model_name)
+    return response
 
 
 def register(app):
@@ -243,6 +251,12 @@ def register(app):
                             )
                             == "web"
                         ]
+                        vector_docs_for_prompt = (
+                            rag_service.select_top_vector_docs_for_prompt(
+                                vector_docs,
+                                top_n=5,
+                            )
+                        )
                     else:
                         retrieval_query = structured_user_query
                         vector_docs = []
@@ -280,7 +294,7 @@ def register(app):
                             logger.info(
                                 "No documents retrieved; switching to direct prompt generation"
                             )
-                            response = state.llm.invoke([
+                            response = _invoke_openai_and_track([
                                 {"role": "system", "content": system_instruction},
                                 {
                                     "role": "user",
@@ -320,8 +334,21 @@ def register(app):
                                 docs[0].page_content[:80],
                             )
 
+                        vector_docs_for_prompt = (
+                            rag_service.select_top_vector_docs_for_prompt(
+                                vector_docs,
+                                top_n=5,
+                            )
+                        )
+
+                    logger.info(
+                        "Using %d/%d vector chunks for prompt context",
+                        len(vector_docs_for_prompt),
+                        len(vector_docs),
+                    )
+
                     context = rag_service.build_combined_context(
-                        vector_docs, web_docs
+                        vector_docs_for_prompt, web_docs
                     )
                     logger.info(
                         "Context assembled (%d chars)",
@@ -342,7 +369,7 @@ def register(app):
                     """
 
                     logger.info("Generating prompt with RAG context...")
-                    response = state.llm.invoke([
+                    response = _invoke_openai_and_track([
                         {"role": "system", "content": system_instruction},
                         {"role": "user", "content": construction_prompt},
                     ])
@@ -388,7 +415,7 @@ def register(app):
                         e,
                     )
                     logger.warning(traceback.format_exc())
-                    response = state.llm.invoke([
+                    response = _invoke_openai_and_track([
                         {"role": "system", "content": system_instruction},
                         {
                             "role": "user",
@@ -408,7 +435,7 @@ def register(app):
                 logger.info(
                     "NO RAG mode selected; generating prompt from structured query and original user question"
                 )
-                response = state.llm.invoke([
+                response = _invoke_openai_and_track([
                     {"role": "system", "content": system_instruction},
                     {
                         "role": "user",
@@ -428,7 +455,7 @@ def register(app):
                 logger.warning(
                     "RAG system not available, using direct generation without retrieval"
                 )
-                response = state.llm.invoke([
+                response = _invoke_openai_and_track([
                     {"role": "system", "content": system_instruction},
                     {
                         "role": "user",

@@ -85,7 +85,7 @@ if __name__ == '__main__':
         "The server will automatically load environment variables from .env if present."
     )
 
-    port = int(os.environ.get('PORT', 5001))
+    port = int(os.environ.get('PORT', 5002))
     logger.info("Server starting on http://localhost:%s", port)
     logger.info("Open your browser and navigate to http://localhost:%s", port)
     logger.info("=" * 60)

@@ -18,6 +18,7 @@ from backend.image_utils import (
 )
 from app_state import state
 import config
+from services.llm_metrics_service import record_gemini_call, record_openai_sdk_call
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ def generate_image(prompt: str) -> Tuple[str, bytes, str]:
         model="gemini-3-pro-image-preview",
         contents=[prompt],
     )
+    record_gemini_call(response, "gemini-3-pro-image-preview")
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'image_{timestamp}.png'
@@ -118,6 +120,7 @@ def edit_image(
             model="gemini-3-pro-image-preview",
             contents=[prompt, image],
         )
+        record_gemini_call(response, "gemini-3-pro-image-preview")
     except Exception as api_error:
         raise ValueError(f"Error calling Gemini API: {str(api_error)}") from api_error
 
@@ -251,6 +254,7 @@ def get_accurate_image(
         ],
         max_completion_tokens=2000,
     )
+    record_openai_sdk_call(vision_response, "gpt-5.4")
 
     flaw_text = vision_response.choices[0].message.content.strip()
     logger.info(

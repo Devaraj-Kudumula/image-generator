@@ -27,6 +27,68 @@ let nextMessageId = 1;
 let lastRagChunks = [];
 const NO_RAG_OPTION_VALUE = 'NO_RAG';
 const WEB_RETRIEVAL_OPTION_VALUE = 'WEB_RETRIEVAL';
+let llmMetricsPollingId = null;
+const SESSION_METRICS_SCOPE = 'sess-' + Date.now() + '-' + Math.floor(Math.random() * 1_000_000);
+
+function getActiveChatMetricId() {
+    const chatPart = activeChatId ? ('chat-' + String(activeChatId)) : 'chat-0';
+    return SESSION_METRICS_SCOPE + ':' + chatPart;
+}
+
+function withActiveChatId(payload) {
+    return { ...(payload || {}), chat_id: getActiveChatMetricId() };
+}
+
+function formatInteger(value) {
+    const parsed = Number(value) || 0;
+    return parsed.toLocaleString();
+}
+
+function formatUsd(value) {
+    const parsed = Number(value) || 0;
+    return '$' + parsed.toFixed(6);
+}
+
+async function refreshLlmMetrics() {
+    try {
+        const response = await fetch('/llm-metrics?chat_id=' + encodeURIComponent(getActiveChatMetricId()));
+        if (!response.ok) return;
+        const data = await response.json();
+        const providers = data && data.providers ? data.providers : {};
+        const gpt = providers.gpt || {};
+        const gemini = providers.gemini || {};
+        const overall = data && data.overall ? data.overall : {};
+
+        const gptTokensEl = document.getElementById('gptTokensValue');
+        const gptCostEl = document.getElementById('gptCostValue');
+        const geminiTokensEl = document.getElementById('geminiTokensValue');
+        const geminiCostEl = document.getElementById('geminiCostValue');
+        const totalTokensEl = document.getElementById('totalTokensValue');
+        const totalCostEl = document.getElementById('totalCostValue');
+        const totalCallsEl = document.getElementById('totalCallsValue');
+        const noteEl = document.getElementById('llmMetricsNote');
+
+        const gptCost = Number(gpt.estimated_cost_usd) || 0;
+        const geminiCost = Number(gemini.estimated_cost_usd) || 0;
+        const totalCost = Number(overall.estimated_cost_usd);
+        const resolvedTotalCost = Number.isFinite(totalCost) ? totalCost : (gptCost + geminiCost);
+
+        if (gptTokensEl) gptTokensEl.textContent = formatInteger(gpt.total_tokens);
+        if (gptCostEl) gptCostEl.textContent = formatUsd(gptCost);
+        if (geminiTokensEl) geminiTokensEl.textContent = formatInteger(gemini.total_tokens);
+        if (geminiCostEl) geminiCostEl.textContent = formatUsd(geminiCost);
+        if (totalTokensEl) totalTokensEl.textContent = formatInteger(overall.total_tokens);
+        if (totalCostEl) totalCostEl.textContent = formatUsd(resolvedTotalCost);
+        if (totalCallsEl) totalCallsEl.textContent = formatInteger(overall.calls);
+        if (noteEl) {
+            noteEl.textContent = data && data.cost_note
+                ? data.cost_note
+                : 'Estimated from configured pricing rates.';
+        }
+    } catch (error) {
+        // Keep the UI silent if metrics endpoint is temporarily unavailable.
+    }
+}
 
 function isNoRagSelected(docNames) {
     const selected = Array.isArray(docNames) ? docNames : getSelectedDocNames();
@@ -160,6 +222,7 @@ function createNewChat(name) {
     renderConversation();
     updateDownloadButtonVisibility();
     updateChatImageCountDisplay();
+    refreshLlmMetrics();
     return chat;
 }
 
@@ -211,6 +274,7 @@ function handleChatChange(event) {
     renderConversation();
     updateDownloadButtonVisibility();
     updateChatImageCountDisplay();
+    refreshLlmMetrics();
 }
 
 function startNewChat() {
@@ -392,7 +456,7 @@ async function regenerateFromPromptMessage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
     try {
-        const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+        const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ prompt })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
@@ -434,7 +498,7 @@ async function regenerateFromEditMessage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
     try {
-        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: prevFilename, image_data_url: prevImageDataUrl, changes }) });
+        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename: prevFilename, image_data_url: prevImageDataUrl, changes })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
@@ -477,7 +541,7 @@ async function applyChangesToImage(entryIndex, changes) {
     successDiv.classList.remove('active');
     addConversationEntry({ role: 'user', text: changes, type: 'edit_request' });
     try {
-        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, image_data_url: imageDataUrl, changes }) });
+        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl, changes })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
@@ -532,7 +596,7 @@ async function getAccurateImage(entryIndex) {
         const response = await fetch('/get-accurate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename, image_data_url: imageDataUrl })
+            body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl }))
         });
         const data = await response.json();
         if (response.ok) {
@@ -601,10 +665,12 @@ async function generatePrompt() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                system_instruction: systemInstruction,
-                user_question: userQuestion,
-                selected_doc_names: selectedDocNames,
-                disable_rag: disableRag
+                ...withActiveChatId({
+                    system_instruction: systemInstruction,
+                    user_question: userQuestion,
+                    selected_doc_names: selectedDocNames,
+                    disable_rag: disableRag
+                })
             })
         });
 
@@ -669,13 +735,20 @@ function updateRagDetails(searchQuery, chunks, fromRun) {
             const sourceType = (rawMetadata && rawMetadata.source_type) ? String(rawMetadata.source_type) : 'vector';
             const docName = (rawMetadata && rawMetadata.doc_name) || (nestedMetadata && nestedMetadata.doc_name) || 'Unknown';
             const sourceUrl = (rawMetadata && rawMetadata.url) ? String(rawMetadata.url) : '';
+            const similarityScore = (rawMetadata && typeof rawMetadata.similarity_score === 'number')
+                ? rawMetadata.similarity_score
+                : null;
             const sourceLabel = sourceType === 'web' ? 'Web source' : 'doc_name';
             const sourceValue = sourceType === 'web' ? (sourceUrl || 'Unknown URL') : String(docName);
             const item = document.createElement('details');
             item.className = 'rag-chunk-item';
+            const scoreLine = similarityScore !== null
+                ? '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">similarity_score:</span>' + escapeHtml(similarityScore.toFixed(4)) + '</div>'
+                : '';
             item.innerHTML =
                 '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary>' +
                 '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">' + escapeHtml(sourceLabel) + ':</span>' + escapeHtml(sourceValue) + '</div>' +
+                scoreLine +
                 '<div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
             chunksList.appendChild(item);
         });
@@ -719,8 +792,10 @@ async function reRunRetrieval() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                search_query: searchQuery,
-                selected_doc_names: selectedDocNames
+                ...withActiveChatId({
+                    search_query: searchQuery,
+                    selected_doc_names: selectedDocNames
+                })
             })
         });
         const data = await response.json();
@@ -780,11 +855,13 @@ async function reSynthesizePrompt() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                system_instruction: systemInstruction,
-                user_question: userQuestion,
-                search_query: searchQuery,
-                chunks: chunks,
-                selected_doc_names: selectedDocNames
+                ...withActiveChatId({
+                    system_instruction: systemInstruction,
+                    user_question: userQuestion,
+                    search_query: searchQuery,
+                    chunks: chunks,
+                    selected_doc_names: selectedDocNames
+                })
             })
         });
         const data = await response.json();
@@ -809,6 +886,112 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Failed to read uploaded image'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function uploadAndEditImage() {
+    const fileInput = document.getElementById('uploadImageInput');
+    const changesEl = document.getElementById('uploadImageChanges');
+    const uploadBtn = document.getElementById('uploadEditBtn');
+    const progressEl = document.getElementById('uploadEditProgress');
+
+    const file = fileInput && fileInput.files && fileInput.files.length > 0
+        ? fileInput.files[0]
+        : null;
+    const changes = changesEl ? changesEl.value.trim() : '';
+
+    if (!file) {
+        showError('imageError', 'Please upload an image first.');
+        return;
+    }
+    if (!changes) {
+        showError('imageError', 'Please describe the edits you want to apply.');
+        return;
+    }
+
+    const loading = document.getElementById('imageLoading');
+    const errorDiv = document.getElementById('imageError');
+    const successDiv = document.getElementById('imageSuccess');
+
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'In progress...';
+    }
+    if (progressEl) {
+        progressEl.textContent = 'In progress: creating image from uploaded input...';
+        progressEl.classList.add('active');
+    }
+    loading.classList.add('active');
+    errorDiv.classList.remove('active');
+    successDiv.classList.remove('active');
+
+    try {
+        const imageDataUrl = await readFileAsDataUrl(file);
+        addConversationEntry({
+            role: 'user',
+            text: 'Uploaded image edit request: ' + changes,
+            type: 'edit_request'
+        });
+
+        const response = await fetch('/edit-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...withActiveChatId({
+                    filename: file.name || 'uploaded-image.png',
+                    image_data_url: imageDataUrl,
+                    changes
+                })
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            const displaySrc = data.image_data_url || data.image_url;
+            addConversationEntry({
+                role: 'assistant',
+                imageUrl: data.image_url,
+                imageDataUrl: data.image_data_url || null,
+                filename: data.filename,
+                type: 'edited_image',
+                sourcePrompt: changes,
+                meta: 'Created image from upload'
+            });
+            displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
+            showSuccess('imageSuccess', 'Image created successfully from uploaded image.');
+            if (changesEl) changesEl.value = '';
+            if (fileInput) fileInput.value = '';
+        } else {
+            showError('imageError', data.error || 'Failed to edit uploaded image');
+            const chat = getActiveChat();
+            if (chat && chat.history.length) chat.history.pop();
+            renderConversation();
+        }
+    } catch (error) {
+        showError('imageError', 'Error: ' + (error.message || 'Network error'));
+        const chat = getActiveChat();
+        if (chat && chat.history.length) chat.history.pop();
+        renderConversation();
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Create Image';
+        }
+        if (progressEl) {
+            progressEl.classList.remove('active');
+            progressEl.textContent = '';
+        }
+        loading.classList.remove('active');
+    }
 }
 
 async function generateImage() {
@@ -841,7 +1024,9 @@ async function generateImage() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                prompt: prompt
+                ...withActiveChatId({
+                    prompt: prompt
+                })
             })
         });
 
@@ -1004,6 +1189,11 @@ function initApp() {
     initThemeToggle();
     createNewChat('Chat 1');
     loadDocNames();
+    refreshLlmMetrics();
+    if (llmMetricsPollingId) {
+        clearInterval(llmMetricsPollingId);
+    }
+    llmMetricsPollingId = setInterval(refreshLlmMetrics, 4000);
     const ragDocNameSelect = document.getElementById('ragDocNameSelect');
     if (ragDocNameSelect) {
         ragDocNameSelect.addEventListener('change', normalizeDocSelection);
@@ -1016,6 +1206,7 @@ window.handleChatChange = handleChatChange;
 window.startNewChat = startNewChat;
 window.generatePrompt = generatePrompt;
 window.generateImage = generateImage;
+window.uploadAndEditImage = uploadAndEditImage;
 window.reRunRetrieval = reRunRetrieval;
 window.reSynthesizePrompt = reSynthesizePrompt;
 window.downloadImage = downloadImage;

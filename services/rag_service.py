@@ -13,8 +13,161 @@ from langchain_community.document_loaders import WebBaseLoader
 import config
 from app_state import state
 from db import fetch_distinct_doc_names
+from services.llm_metrics_service import record_langchain_openai_call
 
 logger = logging.getLogger(__name__)
+
+
+def _as_float_or_none(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _with_similarity_metadata(
+    doc: Document,
+    score: Optional[float],
+    score_direction: Optional[str] = None,
+) -> Document:
+    metadata = dict(getattr(doc, "metadata", {}) or {})
+    metadata["source_type"] = metadata.get("source_type") or "vector"
+    similarity_score = _as_float_or_none(score)
+    if similarity_score is not None:
+        metadata["similarity_score"] = similarity_score
+    if score_direction in {"higher_is_better", "lower_is_better"}:
+        metadata["similarity_score_direction"] = score_direction
+    return Document(page_content=doc.page_content, metadata=metadata)
+
+
+def _similarity_search_scored(
+    query: str,
+    k: int,
+    pre_filter: Optional[Dict[str, Any]] = None,
+) -> List[Document]:
+    """Run vector search and attach similarity scores when available."""
+    if state.vectorstore is None:
+        return []
+
+    search_kwargs: Dict[str, Any] = {"query": query, "k": max(1, int(k))}
+    if pre_filter is not None:
+        search_kwargs["pre_filter"] = pre_filter
+
+    scored_methods = [
+        "similarity_search_with_relevance_scores",
+        "similarity_search_with_score",
+    ]
+
+    for method_name in scored_methods:
+        method = getattr(state.vectorstore, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            pairs = method(**search_kwargs)
+        except TypeError:
+            if "pre_filter" in search_kwargs:
+                fallback_kwargs = {
+                    "query": search_kwargs["query"],
+                    "k": search_kwargs["k"],
+                }
+                try:
+                    pairs = method(**fallback_kwargs)
+                except Exception:
+                    continue
+            else:
+                continue
+        except Exception:
+            continue
+
+        score_direction = (
+            "higher_is_better"
+            if method_name == "similarity_search_with_relevance_scores"
+            else "lower_is_better"
+        )
+
+        docs: List[Document] = []
+        for pair in pairs or []:
+            if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+                continue
+            doc, score = pair[0], pair[1]
+            if not isinstance(doc, Document):
+                continue
+            docs.append(
+                _with_similarity_metadata(
+                    doc,
+                    score,
+                    score_direction=score_direction,
+                )
+            )
+
+        if docs:
+            return docs
+
+    try:
+        docs = state.vectorstore.similarity_search(**search_kwargs)
+    except TypeError:
+        if "pre_filter" in search_kwargs:
+            docs = state.vectorstore.similarity_search(
+                query=search_kwargs["query"],
+                k=search_kwargs["k"],
+            )
+        else:
+            docs = []
+    except Exception:
+        docs = []
+
+    return [
+        _with_similarity_metadata(doc, None)
+        for doc in (docs or [])
+        if isinstance(doc, Document)
+    ]
+
+
+def select_top_vector_docs_for_prompt(
+    vector_docs: List[Document],
+    top_n: int = 5,
+) -> List[Document]:
+    """Use similarity scores when available; otherwise keep retrieval order."""
+    if top_n <= 0:
+        return []
+    if not vector_docs:
+        return []
+
+    has_any_score = any(
+        isinstance(getattr(doc, "metadata", {}), dict)
+        and (getattr(doc, "metadata", {}) or {}).get("similarity_score")
+        is not None
+        for doc in vector_docs
+    )
+    if not has_any_score:
+        return vector_docs[:top_n]
+
+    directions = {
+        (getattr(doc, "metadata", {}) or {}).get("similarity_score_direction")
+        for doc in vector_docs
+        if isinstance(getattr(doc, "metadata", {}), dict)
+    }
+    directions.discard(None)
+    if len(directions) != 1:
+        return vector_docs[:top_n]
+
+    direction = next(iter(directions))
+
+    def _score(doc: Document) -> float:
+        metadata = getattr(doc, "metadata", {}) or {}
+        value = _as_float_or_none(metadata.get("similarity_score"))
+        if value is None:
+            return float("inf") if direction == "lower_is_better" else float("-inf")
+        return value
+
+    sorted_docs = sorted(
+        vector_docs,
+        key=_score,
+        reverse=(direction == "higher_is_better"),
+    )
+    return sorted_docs[:top_n]
 
 
 def extract_doc_name_from_doc(doc: Document) -> Optional[str]:
@@ -375,6 +528,8 @@ def build_structured_retrieval_query(user_question: str) -> str:
             {"role": "system", "content": extract_system},
             {"role": "user", "content": base_question},
         ])
+        model_name = getattr(state.llm, "model_name", None) or "gpt-4"
+        record_langchain_openai_call(extract_response, model_name)
         structured_query = (extract_response.content or "").strip()
         if structured_query:
             logger.info(
@@ -425,7 +580,7 @@ def retrieve_docs_with_timeout(
                     if per_doc_k <= 0:
                         continue
                     pre_filter = {"metadata.doc_name": {"$eq": doc_name}}
-                    filtered_docs = state.vectorstore.similarity_search(
+                    filtered_docs = _similarity_search_scored(
                         query=query,
                         k=per_doc_k,
                         pre_filter=pre_filter,
@@ -440,20 +595,24 @@ def retrieve_docs_with_timeout(
 
                 return docs
 
-            logger.info(
-                "Using base similarity retriever (no doc_name filters)"
+            if state.vectorstore is not None:
+                logger.info("Using scored vector similarity search")
+                docs = _similarity_search_scored(
+                    query=query,
+                    k=max(1, int(total_k)),
+                )
+                if docs:
+                    return docs
+
+            logger.warning(
+                "Scored vector search unavailable/empty; using retriever fallback"
             )
             docs = state.retriever.invoke(query)
-            if docs:
-                return docs
-            if state.vectorstore is not None:
-                logger.warning(
-                    "Retriever returned 0 docs; retrying direct similarity search"
-                )
-                return state.vectorstore.similarity_search(
-                    query=query, k=max(1, int(total_k))
-                )
-            return docs
+            return [
+                _with_similarity_metadata(doc, None)
+                for doc in (docs or [])
+                if isinstance(doc, Document)
+            ]
         except Exception as e:
             logger.error("Retriever invoke error: %s", e)
             raise

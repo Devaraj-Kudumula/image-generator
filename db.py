@@ -85,7 +85,7 @@ def init_mongo() -> Tuple[
     try:
         logger.info("Initializing embedding model...")
         embedding_model = OpenAIEmbeddings(
-            model="text-embedding-3-small",
+            model="text-embedding-3-large",
             api_key=config.OPENAI_API_KEY,
             request_timeout=45,
             max_retries=2,
