@@ -31,6 +31,14 @@ DB_NAME = "medical_vector_db"
 COLLECTION_NAME = "vector_chunks_embeds"
 INDEX_NAME = "default"
 
+# Session-scoped on-demand document store
+ONDEMAND_MONGODB_URI = os.getenv(
+    'ONDEMAND_MONGODB_URI',
+    'mongodb+srv://Devaa:Devaa@dev.pa9pov2.mongodb.net/?appName=DEV',
+).strip().strip('"').strip("'")
+ONDEMAND_DB_NAME = os.getenv('ONDEMAND_DB_NAME', 'medical_vector_db')
+ONDEMAND_INDEX_NAME = os.getenv('ONDEMAND_INDEX_NAME', 'default')
+
 # RAG options
 NO_RAG_OPTION_VALUE = "NO_RAG"
 WEB_RETRIEVAL_OPTION_VALUE = "WEB_RETRIEVAL"

@@ -25,9 +25,18 @@ let activeChatId = null;
 let nextChatId = 1;
 let nextMessageId = 1;
 let lastRagChunks = [];
+let docChatHistory = [];
 const NO_RAG_OPTION_VALUE = 'NO_RAG';
 const WEB_RETRIEVAL_OPTION_VALUE = 'WEB_RETRIEVAL';
 let llmMetricsPollingId = null;
+const SESSION_STORAGE_KEY = 'image_generator_session_id';
+
+function generateClientSessionId() {
+    const randomPart = Math.random().toString(36).slice(2, 10);
+    return 'sess_' + Date.now().toString(36) + '_' + randomPart;
+}
+
+let CLIENT_SESSION_ID = generateClientSessionId();
 const SESSION_METRICS_SCOPE = 'sess-' + Date.now() + '-' + Math.floor(Math.random() * 1_000_000);
 
 function getActiveChatMetricId() {
@@ -36,7 +45,25 @@ function getActiveChatMetricId() {
 }
 
 function withActiveChatId(payload) {
-    return { ...(payload || {}), chat_id: getActiveChatMetricId() };
+    return {
+        ...(payload || {}),
+        chat_id: getActiveChatMetricId(),
+        session_id: CLIENT_SESSION_ID,
+    };
+}
+
+async function resetServerSession(sessionId) {
+    if (!sessionId) return;
+    try {
+        await fetch('/session/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId }),
+            keepalive: true,
+        });
+    } catch (error) {
+        // Best-effort cleanup; ignore network issues during tab close/reload.
+    }
 }
 
 function formatInteger(value) {
@@ -113,57 +140,231 @@ function updateRetrievalActionsState() {
     }
 }
 
-function normalizeDocSelection() {
-    const select = document.getElementById('ragDocNameSelect');
-    if (!select) return;
+function renderDocChatHistory() {
+    const container = document.getElementById('docChatMessages');
+    if (!container) return;
 
-    const selectedValues = Array.from(select.selectedOptions || []).map(option => option.value);
+    if (!docChatHistory.length) {
+        container.innerHTML = '<p class="doc-chat-empty">Ask a question to start document chat.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+    docChatHistory.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'doc-chat-row ' + (entry.role === 'user' ? 'doc-chat-user' : 'doc-chat-assistant');
+
+        const roleLabel = document.createElement('div');
+        roleLabel.className = 'doc-chat-role';
+        roleLabel.textContent = entry.role === 'user' ? 'You' : 'Assistant';
+
+        const content = document.createElement('div');
+        content.className = 'doc-chat-content';
+        content.textContent = entry.text;
+
+        row.appendChild(roleLabel);
+        row.appendChild(content);
+        container.appendChild(row);
+    });
+    container.scrollTop = container.scrollHeight;
+}
+
+function clearDocChatHistory() {
+    docChatHistory = [];
+    const errorEl = document.getElementById('docChatError');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+    renderDocChatHistory();
+}
+
+function buildDocChatHistoryContext() {
+    if (!Array.isArray(docChatHistory) || docChatHistory.length === 0) {
+        return '';
+    }
+    return docChatHistory
+        .map(entry => {
+            const role = entry && entry.role === 'assistant' ? 'Assistant' : 'User';
+            const text = entry && entry.text ? String(entry.text) : '';
+            return role + ': ' + text;
+        })
+        .join('\n');
+}
+
+async function askDocsQuestion() {
+    const inputEl = document.getElementById('docChatQuestion');
+    const loadingEl = document.getElementById('docChatLoading');
+    const errorEl = document.getElementById('docChatError');
+    const askBtn = document.getElementById('askDocsBtn');
+
+    const question = inputEl ? inputEl.value.trim() : '';
+    if (!question) {
+        if (errorEl) {
+            errorEl.textContent = 'Enter a question first.';
+            errorEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    const selectedDocNames = getSelectedDocNames();
+    const chatHistoryContext = buildDocChatHistoryContext();
+    if (isNoRagSelected(selectedDocNames)) {
+        if (errorEl) {
+            errorEl.textContent = 'NO RAG is selected. Enable source docs to chat.';
+            errorEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    docChatHistory.push({ role: 'user', text: question });
+    renderDocChatHistory();
+    if (inputEl) inputEl.value = '';
+
+    if (loadingEl) loadingEl.classList.remove('hidden');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+    if (askBtn) askBtn.disabled = true;
+
+    try {
+        const response = await fetch('/chat-with-docs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...withActiveChatId({
+                    user_question: question,
+                    selected_doc_names: selectedDocNames,
+                    chat_history: chatHistoryContext
+                })
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to get answer');
+        }
+
+        docChatHistory.push({
+            role: 'assistant',
+            text: String(data.answer || 'No answer generated.')
+        });
+        renderDocChatHistory();
+
+        updateRagDetails(data.search_query, data.chunks || [], true);
+        if (Array.isArray(data.selected_doc_names)) {
+            setSelectedDocNames(data.selected_doc_names);
+        }
+    } catch (error) {
+        docChatHistory.push({
+            role: 'assistant',
+            text: 'Error: ' + (error.message || 'Unknown error')
+        });
+        renderDocChatHistory();
+        if (errorEl) {
+            errorEl.textContent = 'Error: ' + (error.message || 'Unknown error');
+            errorEl.classList.remove('hidden');
+        }
+    } finally {
+        if (loadingEl) loadingEl.classList.add('hidden');
+        if (askBtn) askBtn.disabled = false;
+    }
+}
+
+function normalizeDocSelection() {
+    const baseSelect = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+    if (!baseSelect) return;
+
+    const selectedValues = Array.from(baseSelect.selectedOptions || []).map(option => option.value);
     if (selectedValues.includes(NO_RAG_OPTION_VALUE)) {
-        Array.from(select.options || []).forEach(option => {
+        Array.from(baseSelect.options || []).forEach(option => {
             option.selected = option.value === NO_RAG_OPTION_VALUE;
         });
+        if (sessionSelect) {
+            Array.from(sessionSelect.options || []).forEach(option => {
+                option.selected = false;
+            });
+        }
     }
 
     updateRetrievalActionsState();
 }
 
 function getSelectedDocNames() {
-    const select = document.getElementById('ragDocNameSelect');
-    if (!select) return [];
-    return Array.from(select.selectedOptions || [])
-        .map(option => option.value)
-        .filter(value => !!value);
+    const baseSelect = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+    const baseValues = baseSelect
+        ? Array.from(baseSelect.selectedOptions || [])
+            .map(option => option.value)
+            .filter(value => !!value)
+            .map(value => {
+                if (value === NO_RAG_OPTION_VALUE || value === WEB_RETRIEVAL_OPTION_VALUE) {
+                    return value;
+                }
+                return value.startsWith('base::') ? value : ('base::' + value);
+            })
+        : [];
+
+    const sessionValues = sessionSelect
+        ? Array.from(sessionSelect.selectedOptions || [])
+            .map(option => option.value)
+            .filter(value => !!value)
+            .map(value => value.startsWith('session::') ? value : ('session::' + value))
+        : [];
+
+    return [...baseValues, ...sessionValues].filter(value => !!value);
 }
 
 function setSelectedDocNames(docNames) {
-    const select = document.getElementById('ragDocNameSelect');
-    if (!select) return;
+    const baseSelect = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+    if (!baseSelect) return;
     const selectedSet = new Set(Array.isArray(docNames) ? docNames : []);
     const noRagOnly = selectedSet.has(NO_RAG_OPTION_VALUE);
-    Array.from(select.options || []).forEach(option => {
+    Array.from(baseSelect.options || []).forEach(option => {
+        const baseToken = option.value.startsWith('base::')
+            ? option.value
+            : (option.value === NO_RAG_OPTION_VALUE || option.value === WEB_RETRIEVAL_OPTION_VALUE
+                ? option.value
+                : ('base::' + option.value));
         option.selected = noRagOnly
             ? option.value === NO_RAG_OPTION_VALUE
-            : selectedSet.has(option.value);
+            : selectedSet.has(baseToken) || selectedSet.has(option.value);
     });
+    if (sessionSelect) {
+        Array.from(sessionSelect.options || []).forEach(option => {
+            const sessionToken = option.value.startsWith('session::')
+                ? option.value
+                : ('session::' + option.value);
+            option.selected = !noRagOnly && (selectedSet.has(sessionToken) || selectedSet.has(option.value));
+        });
+    }
     normalizeDocSelection();
 }
 
 async function loadDocNames() {
     const select = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
     const errorEl = document.getElementById('ragRetrievalError');
-    if (!select) return;
+    if (!select || !sessionSelect) return;
 
     const previousSelection = getSelectedDocNames();
     select.innerHTML = '';
 
     try {
-        const response = await fetch('/doc-names');
+        const response = await fetch('/doc-names?session_id=' + encodeURIComponent(CLIENT_SESSION_ID));
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || 'Failed to load document names');
         }
 
-        const docNames = Array.isArray(data.doc_names) ? data.doc_names : [];
+        const docNames = Array.isArray(data.base_doc_names || data.doc_names)
+            ? (data.base_doc_names || data.doc_names)
+            : [];
+        const sessionDocNames = Array.isArray(data.session_doc_names)
+            ? data.session_doc_names
+            : [];
 
         const noRagOption = document.createElement('option');
         noRagOption.value = NO_RAG_OPTION_VALUE;
@@ -181,16 +382,30 @@ async function loadDocNames() {
             option.textContent = 'No source documents found';
             option.disabled = true;
             select.appendChild(option);
-            normalizeDocSelection();
-            return;
+        } else {
+            docNames.forEach(docName => {
+                const option = document.createElement('option');
+                option.value = docName;
+                option.textContent = docName;
+                select.appendChild(option);
+            });
         }
 
-        docNames.forEach(docName => {
+        sessionSelect.innerHTML = '';
+        if (sessionDocNames.length === 0) {
             const option = document.createElement('option');
-            option.value = docName;
-            option.textContent = docName;
-            select.appendChild(option);
-        });
+            option.value = '';
+            option.textContent = 'No uploaded docs in this session';
+            option.disabled = true;
+            sessionSelect.appendChild(option);
+        } else {
+            sessionDocNames.forEach(docName => {
+                const option = document.createElement('option');
+                option.value = docName;
+                option.textContent = docName;
+                sessionSelect.appendChild(option);
+            });
+        }
 
         setSelectedDocNames(previousSelection);
         normalizeDocSelection();
@@ -882,6 +1097,77 @@ async function reSynthesizePrompt() {
     }
 }
 
+async function uploadRagDocument() {
+    const fileInput = document.getElementById('ragUploadFileInput');
+    const uploadBtn = document.getElementById('uploadRagDocBtn');
+    const statusEl = document.getElementById('ragUploadStatus');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+
+    const file = fileInput && fileInput.files && fileInput.files.length > 0
+        ? fileInput.files[0]
+        : null;
+
+    if (!file) {
+        if (statusEl) statusEl.textContent = 'Choose a PDF file first.';
+        return;
+    }
+    if (!String(file.name || '').toLowerCase().endsWith('.pdf')) {
+        if (statusEl) statusEl.textContent = 'Only PDF uploads are supported.';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('session_id', CLIENT_SESSION_ID);
+    formData.append('file', file);
+
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+    }
+    if (statusEl) statusEl.textContent = 'Processing PDF: chunking, embedding, and saving...';
+
+    try {
+        const response = await fetch('/upload-doc', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Upload failed');
+        }
+
+        if (statusEl) {
+            statusEl.textContent = 'Uploaded ' + data.doc_name + ' (' + data.chunks_inserted + ' chunks)';
+        }
+
+        await loadDocNames();
+        if (Array.isArray(data.session_doc_names) && sessionSelect) {
+            Array.from(sessionSelect.options || []).forEach(option => {
+                option.selected = data.session_doc_names.includes(option.value);
+            });
+        }
+        const baseSelect = document.getElementById('ragDocNameSelect');
+        if (baseSelect) {
+            Array.from(baseSelect.options || []).forEach(option => {
+                if (option.value === NO_RAG_OPTION_VALUE || option.value === WEB_RETRIEVAL_OPTION_VALUE) {
+                    option.selected = false;
+                } else {
+                    option.selected = false;
+                }
+            });
+        }
+        normalizeDocSelection();
+        if (fileInput) fileInput.value = '';
+    } catch (error) {
+        if (statusEl) statusEl.textContent = 'Upload failed: ' + (error.message || 'Unknown error');
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload PDF';
+        }
+    }
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -1185,7 +1471,14 @@ function initImageInteractions() {
     });
 }
 
-function initApp() {
+async function initApp() {
+    const previousSessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (previousSessionId) {
+        await resetServerSession(previousSessionId);
+    }
+    CLIENT_SESSION_ID = generateClientSessionId();
+    sessionStorage.setItem(SESSION_STORAGE_KEY, CLIENT_SESSION_ID);
+
     initThemeToggle();
     createNewChat('Chat 1');
     loadDocNames();
@@ -1198,7 +1491,12 @@ function initApp() {
     if (ragDocNameSelect) {
         ragDocNameSelect.addEventListener('change', normalizeDocSelection);
     }
+    const ragSessionDocNameSelect = document.getElementById('ragSessionDocNameSelect');
+    if (ragSessionDocNameSelect) {
+        ragSessionDocNameSelect.addEventListener('change', normalizeDocSelection);
+    }
     updateRetrievalActionsState();
+    renderDocChatHistory();
     initImageInteractions();
 }
 
@@ -1209,8 +1507,17 @@ window.generateImage = generateImage;
 window.uploadAndEditImage = uploadAndEditImage;
 window.reRunRetrieval = reRunRetrieval;
 window.reSynthesizePrompt = reSynthesizePrompt;
+window.uploadRagDocument = uploadRagDocument;
+window.askDocsQuestion = askDocsQuestion;
+window.clearDocChatHistory = clearDocChatHistory;
 window.downloadImage = downloadImage;
 window.closeImageFullscreen = closeImageFullscreen;
 
 document.addEventListener('DOMContentLoaded', initApp);
+window.addEventListener('beforeunload', function() {
+    const activeSessionId = sessionStorage.getItem(SESSION_STORAGE_KEY) || CLIENT_SESSION_ID;
+    if (!activeSessionId) return;
+    resetServerSession(activeSessionId);
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+});
 

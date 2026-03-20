@@ -4,7 +4,7 @@ RAG: retrieval helpers, source normalization, web search, and context building.
 import re
 import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 import requests
 from langchain_core.documents import Document
@@ -13,9 +13,13 @@ from langchain_community.document_loaders import WebBaseLoader
 import config
 from app_state import state
 from db import fetch_distinct_doc_names
+from services import ondemand_docs_service
 from services.llm_metrics_service import record_langchain_openai_call
 
 logger = logging.getLogger(__name__)
+
+BASE_DOC_PREFIX = "base::"
+SESSION_DOC_PREFIX = "session::"
 
 
 def _with_vector_metadata(doc: Document) -> Document:
@@ -28,9 +32,11 @@ def _similarity_search(
     query: str,
     k: int,
     pre_filter: Optional[Dict[str, Any]] = None,
+    vectorstore: Any = None,
 ) -> List[Document]:
     """Run plain vector similarity search and normalize metadata."""
-    if state.vectorstore is None:
+    target_vectorstore = vectorstore or state.vectorstore
+    if target_vectorstore is None:
         return []
 
     search_kwargs: Dict[str, Any] = {"query": query, "k": max(1, int(k))}
@@ -38,10 +44,10 @@ def _similarity_search(
         search_kwargs["pre_filter"] = pre_filter
 
     try:
-        docs = state.vectorstore.similarity_search(**search_kwargs)
+        docs = target_vectorstore.similarity_search(**search_kwargs)
     except TypeError:
         if "pre_filter" in search_kwargs:
-            docs = state.vectorstore.similarity_search(
+            docs = target_vectorstore.similarity_search(
                 query=search_kwargs["query"],
                 k=search_kwargs["k"],
             )
@@ -71,17 +77,62 @@ def extract_doc_name_from_doc(doc: Document) -> Optional[str]:
     return None
 
 
-def sanitize_selected_doc_names(selected_doc_names: Any) -> List[str]:
+def extract_session_id(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("session_id") or "").strip()
+
+
+def _split_selected_sources(selected_doc_names: Any) -> Tuple[List[str], List[str]]:
+    if not isinstance(selected_doc_names, list):
+        return ([], [])
+
+    base_candidates: List[str] = []
+    session_candidates: List[str] = []
+    for raw_value in selected_doc_names:
+        if not isinstance(raw_value, str):
+            continue
+        value = raw_value.strip()
+        if not value:
+            continue
+        normalized_upper = value.upper()
+        if normalized_upper in {
+            config.NO_RAG_OPTION_VALUE,
+            config.WEB_RETRIEVAL_OPTION_VALUE,
+        }:
+            continue
+        if value.startswith(SESSION_DOC_PREFIX):
+            session_value = value[len(SESSION_DOC_PREFIX):].strip()
+            if session_value:
+                session_candidates.append(session_value)
+            continue
+        if value.startswith(BASE_DOC_PREFIX):
+            base_value = value[len(BASE_DOC_PREFIX):].strip()
+            if base_value:
+                base_candidates.append(base_value)
+            continue
+        base_candidates.append(value)
+    return (base_candidates, session_candidates)
+
+
+def sanitize_selected_doc_names(
+    selected_doc_names: Any,
+    session_id: str = "",
+) -> List[str]:
     if not isinstance(selected_doc_names, list):
         return []
-    candidate_names = [
-        str(name).strip()
-        for name in selected_doc_names
-        if isinstance(name, str) and str(name).strip()
-    ]
-    if not candidate_names:
-        return []
 
+    selected_sources: List[str] = []
+    if is_no_rag_selected(selected_doc_names):
+        return [config.NO_RAG_OPTION_VALUE]
+    if is_web_retrieval_selected(selected_doc_names):
+        selected_sources.append(config.WEB_RETRIEVAL_OPTION_VALUE)
+
+    base_candidates, session_candidates = _split_selected_sources(
+        selected_doc_names
+    )
+
+    candidate_names = [name for name in base_candidates if name]
     if not state.known_doc_names:
         state.known_doc_names = fetch_distinct_doc_names(state.mongo_client)
 
@@ -91,9 +142,23 @@ def sanitize_selected_doc_names(selected_doc_names: Any) -> List[str]:
             state.known_doc_names = latest_doc_names
 
     valid_names = set(state.known_doc_names)
-    if not valid_names:
-        return []
-    return [name for name in candidate_names if name in valid_names]
+    selected_sources.extend(
+        f"{BASE_DOC_PREFIX}{name}"
+        for name in candidate_names
+        if name in valid_names
+    )
+
+    if session_id:
+        session_valid_names = set(
+            ondemand_docs_service.list_session_doc_names(session_id)
+        )
+        selected_sources.extend(
+            f"{SESSION_DOC_PREFIX}{name}"
+            for name in session_candidates
+            if name in session_valid_names
+        )
+
+    return selected_sources
 
 
 def is_no_rag_selected(selected_doc_names: Any) -> bool:
@@ -116,20 +181,12 @@ def is_web_retrieval_selected(selected_doc_names: Any) -> bool:
     )
 
 
-def normalize_selected_sources(selected_doc_names: Any) -> List[str]:
+def normalize_selected_sources(
+    selected_doc_names: Any,
+    session_id: str = "",
+) -> List[str]:
     """Preserve selected sources while validating known document names."""
-    if not isinstance(selected_doc_names, list):
-        return []
-
-    normalized_sources: List[str] = []
-    if is_no_rag_selected(selected_doc_names):
-        return [config.NO_RAG_OPTION_VALUE]
-    if is_web_retrieval_selected(selected_doc_names):
-        normalized_sources.append(config.WEB_RETRIEVAL_OPTION_VALUE)
-
-    sanitized_doc_names = sanitize_selected_doc_names(selected_doc_names)
-    normalized_sources.extend(sanitized_doc_names)
-    return normalized_sources
+    return sanitize_selected_doc_names(selected_doc_names, session_id=session_id)
 
 
 def should_run_doc_retrieval(
@@ -138,7 +195,8 @@ def should_run_doc_retrieval(
     web_selected: bool,
 ) -> bool:
     """Decide whether vector retrieval should run based on selected sources."""
-    if sanitized_doc_names:
+    base_selected, session_selected = _split_selected_sources(sanitized_doc_names)
+    if base_selected or session_selected:
         return True
     if not isinstance(raw_selected_sources, list) or len(raw_selected_sources) == 0:
         return True
@@ -441,54 +499,141 @@ def retrieve_docs_with_timeout(
     timeout_sec: int = 20,
     selected_doc_names: Optional[List[str]] = None,
     total_k: int = 10,
+    session_id: str = "",
+    equal_per_selected_doc: bool = False,
 ) -> List[Document]:
-    """Run retrieval with timeout; supports explicit selected doc_name filtering."""
-    if not state.retriever:
-        raise ValueError("Retriever not available")
+    """Run retrieval with timeout across base and session-scoped vector stores."""
 
     def retrieve_docs():
         try:
-            sanitized_doc_names = sanitize_selected_doc_names(selected_doc_names)
+            sanitized_sources = sanitize_selected_doc_names(
+                selected_doc_names,
+                session_id=session_id,
+            )
+            selected_base, selected_session = _split_selected_sources(
+                sanitized_sources
+            )
 
-            if sanitized_doc_names:
-                if state.vectorstore is None:
-                    raise ValueError(
-                        "Vectorstore not available for doc_name filtered retrieval"
+            chunk_count = max(1, int(total_k))
+            docs: List[Document] = []
+
+            session_vectorstore = (
+                ondemand_docs_service.get_session_vectorstore(session_id)
+                if session_id
+                else None
+            )
+            session_doc_names = (
+                ondemand_docs_service.list_session_doc_names(session_id)
+                if session_id
+                else []
+            )
+
+            if not selected_base and not selected_session:
+                if session_vectorstore is not None and session_doc_names:
+                    # Prefer ephemeral session docs when no explicit source is selected.
+                    selected_session = session_doc_names
+                elif state.retriever is not None:
+                    logger.info("Using base retriever similarity search")
+                    base_docs = state.retriever.invoke(query)
+                    return [
+                        _with_vector_metadata(doc)
+                        for doc in (base_docs or [])
+                        if isinstance(doc, Document)
+                    ]
+                elif session_vectorstore is not None:
+                    return _similarity_search(
+                        query=query,
+                        k=chunk_count,
+                        vectorstore=session_vectorstore,
                     )
+                raise ValueError("Retriever not available")
 
-                chunk_count = max(1, int(total_k))
-                doc_count = len(sanitized_doc_names)
-                base_k = chunk_count // doc_count
-                remainder = chunk_count % doc_count
+            selected_entries: List[Tuple[str, str]] = []
+            selected_entries.extend(("base", name) for name in selected_base)
+            selected_entries.extend(("session", name) for name in selected_session)
 
-                docs: List[Document] = []
-                for index, doc_name in enumerate(sanitized_doc_names):
+            if equal_per_selected_doc and selected_entries:
+                base_k, remainder = divmod(chunk_count, len(selected_entries))
+                for index, (source_type, doc_name) in enumerate(selected_entries):
                     per_doc_k = base_k + (1 if index < remainder else 0)
                     if per_doc_k <= 0:
                         continue
-                    pre_filter = {"metadata.doc_name": {"$eq": doc_name}}
+                    target_vectorstore = (
+                        state.vectorstore
+                        if source_type == "base"
+                        else session_vectorstore
+                    )
+                    if target_vectorstore is None:
+                        continue
                     filtered_docs = _similarity_search(
                         query=query,
                         k=per_doc_k,
-                        pre_filter=pre_filter,
+                        pre_filter={"metadata.doc_name": {"$eq": doc_name}},
+                        vectorstore=target_vectorstore,
+                    )
+                    if (
+                        source_type == "session"
+                        and len(filtered_docs) == 0
+                        and session_id
+                    ):
+                        filtered_docs = ondemand_docs_service.retrieve_docs_bruteforce(
+                            session_id=session_id,
+                            query=query,
+                            doc_name=doc_name,
+                            k=per_doc_k,
+                        )
+                    logger.info(
+                        "Equal retrieval (%s): doc_name='%s', requested_k=%s, returned=%d",
+                        source_type,
+                        doc_name,
+                        per_doc_k,
+                        len(filtered_docs),
+                    )
+                    docs.extend(filtered_docs)
+                return docs[:chunk_count]
+
+            active_groups = 0
+            if selected_base:
+                active_groups += 1
+            if selected_session:
+                active_groups += 1
+            group_k = max(1, chunk_count // max(1, active_groups))
+
+            if selected_base and state.vectorstore is not None:
+                per_doc_k = max(1, group_k // len(selected_base))
+                for doc_name in selected_base:
+                    filtered_docs = _similarity_search(
+                        query=query,
+                        k=per_doc_k,
+                        pre_filter={"metadata.doc_name": {"$eq": doc_name}},
+                        vectorstore=state.vectorstore,
                     )
                     logger.info(
-                        "Doc filter retrieval: doc_name='%s', requested_k=%s, returned=%d",
+                        "Base filter retrieval: doc_name='%s', requested_k=%s, returned=%d",
                         doc_name,
                         per_doc_k,
                         len(filtered_docs),
                     )
                     docs.extend(filtered_docs)
 
-                return docs
+            if selected_session and session_vectorstore is not None:
+                per_doc_k = max(1, group_k // len(selected_session))
+                for doc_name in selected_session:
+                    filtered_docs = _similarity_search(
+                        query=query,
+                        k=per_doc_k,
+                        pre_filter={"metadata.doc_name": {"$eq": doc_name}},
+                        vectorstore=session_vectorstore,
+                    )
+                    logger.info(
+                        "Session filter retrieval: doc_name='%s', requested_k=%s, returned=%d",
+                        doc_name,
+                        per_doc_k,
+                        len(filtered_docs),
+                    )
+                    docs.extend(filtered_docs)
 
-            logger.info("Using retriever similarity search")
-            docs = state.retriever.invoke(query)
-            return [
-                _with_vector_metadata(doc)
-                for doc in (docs or [])
-                if isinstance(doc, Document)
-            ]
+            return docs[:chunk_count]
         except Exception as e:
             logger.error("Retriever invoke error: %s", e)
             raise

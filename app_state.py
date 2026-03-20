@@ -18,6 +18,7 @@ class AppState:
         self.embedding_model = None
         self.known_doc_names = []
         self.google_serper_wrapper = None
+        self.ondemand_sessions = {}
 
 
 state = AppState()
