@@ -251,12 +251,7 @@ def register(app):
                             )
                             == "web"
                         ]
-                        vector_docs_for_prompt = (
-                            rag_service.select_top_vector_docs_for_prompt(
-                                vector_docs,
-                                top_n=5,
-                            )
-                        )
+                        vector_docs_for_prompt = vector_docs
                     else:
                         retrieval_query = structured_user_query
                         vector_docs = []
@@ -334,12 +329,7 @@ def register(app):
                                 docs[0].page_content[:80],
                             )
 
-                        vector_docs_for_prompt = (
-                            rag_service.select_top_vector_docs_for_prompt(
-                                vector_docs,
-                                top_n=5,
-                            )
-                        )
+                        vector_docs_for_prompt = vector_docs
 
                     logger.info(
                         "Using %d/%d vector chunks for prompt context",

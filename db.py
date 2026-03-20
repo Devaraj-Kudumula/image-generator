@@ -2,10 +2,12 @@
 MongoDB connection, vectorstore, retriever, and document name catalog.
 """
 import logging
+import ssl
 import time
 import traceback
 from typing import List, Any, Optional, Tuple
 
+import certifi
 from langchain_openai import OpenAIEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
@@ -85,7 +87,7 @@ def init_mongo() -> Tuple[
     try:
         logger.info("Initializing embedding model...")
         embedding_model = OpenAIEmbeddings(
-            model="text-embedding-3-large",
+            model="text-embedding-ada-002",
             api_key=config.OPENAI_API_KEY,
             request_timeout=45,
             max_retries=2,
@@ -100,28 +102,15 @@ def init_mongo() -> Tuple[
                 serverSelectionTimeoutMS=30000,
                 connectTimeoutMS=30000,
                 socketTimeoutMS=30000,
-                tlsAllowInvalidCertificates=True,
                 retryWrites=True,
             )
             mongo_client.admin.command('ping')
             logger.info("MongoDB connection successful")
         except Exception as conn_error:
             logger.error("Connection attempt failed: %s", conn_error)
-            logger.info("Attempting fallback connection without SSL...")
-            fallback_uri = config.MONGODB_URI
-            if '?' in fallback_uri:
-                fallback_uri += '&tls=false&tlsInsecure=true'
-            else:
-                fallback_uri += '?tls=false&tlsInsecure=true'
-
-            mongo_client = MongoClient(
-                fallback_uri,
-                serverSelectionTimeoutMS=30000,
-                connectTimeoutMS=30000,
-                socketTimeoutMS=30000,
-            )
-            mongo_client.admin.command('ping')
-            logger.info("MongoDB connection successful (fallback mode)")
+            logger.error("OpenSSL version: %s", ssl.OPENSSL_VERSION)
+            logger.error("certifi bundle: %s", certifi.where())
+            raise
 
         collection = mongo_client[config.DB_NAME][config.COLLECTION_NAME]
         doc_count = collection.count_documents({})
@@ -164,6 +153,7 @@ def init_mongo() -> Tuple[
         logger.error("2. Check MongoDB Atlas network access allows 0.0.0.0/0")
         logger.error("3. Verify database credentials are correct")
         logger.error("4. Ensure vector search index 'vector_index' exists")
+        logger.error("5. Use Python linked with OpenSSL 1.1.1+ (recommended OpenSSL 3.x)")
         logger.error("=" * 60)
         vectorstore = None
         retriever = None

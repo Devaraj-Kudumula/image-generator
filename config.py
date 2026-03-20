@@ -25,12 +25,11 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_GENERATIVE_AI_API_KEY')
 MONGODB_URI = os.getenv(
     'MONGODB_URI',
     'mongodb+srv://db_user:db_user@cluster0.9a1tk8o.mongodb.net/?retryWrites=true&w=majority',
-)
+).strip().strip('"').strip("'")
+
 DB_NAME = "medical_vector_db"
-# COLLECTION_NAME = "vector_chunks_embeds"
-COLLECTION_NAME = "new_vector_chunks"
+COLLECTION_NAME = "vector_chunks_embeds"
 INDEX_NAME = "default"
-# INDEX_NAME = "vector_index"
 
 # RAG options
 NO_RAG_OPTION_VALUE = "NO_RAG"
