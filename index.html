@@ -100,9 +100,21 @@ Output should read like a refined, publication-ready medical illustration brief 
                                 </summary>
                                 <div class="rag-details-inner">
                                     <div class="rag-search-query-block" id="ragSearchQueryBlock">
-                                        <div class="rag-label">Source documents (optional)</div>
+                                        <div class="rag-label">Already present docs</div>
                                         <select id="ragDocNameSelect" class="rag-doc-select" multiple size="6"></select>
-                                        <div class="rag-doc-help">Select one or more sources. Choose documents for vector retrieval, add Web Retrieval for Google search content, or use NO RAG to disable retrieval.</div>
+                                        <div class="rag-doc-help">Select one or more base sources. Add Web Retrieval for web context, or choose NO RAG to disable retrieval.</div>
+
+                                        <div class="rag-label">Upload docs on demand (session only)</div>
+                                        <div class="rag-upload-row">
+                                            <input id="ragUploadFileInput" class="upload-file-input" type="file" accept="application/pdf" />
+                                            <button type="button" class="rag-btn rag-btn-secondary" id="uploadRagDocBtn" onclick="uploadRagDocument()">Upload PDF</button>
+                                        </div>
+                                        <div class="rag-upload-status" id="ragUploadStatus"></div>
+
+                                        <div class="rag-label">Uploaded docs for this session</div>
+                                        <select id="ragSessionDocNameSelect" class="rag-doc-select" multiple size="6"></select>
+                                        <div class="rag-doc-help">Only available in this browser session. Uploaded docs are deleted from MongoDB when session resets or page reloads.</div>
+
                                         <div class="rag-retrieval-actions">
                                             <button type="button" class="rag-btn rag-btn-primary" id="reRunRetrievalBtn" onclick="reRunRetrieval()">Retrieve chunks</button>
                                             <button type="button" class="rag-btn rag-btn-secondary" id="reSynthesizePromptBtn" onclick="reSynthesizePrompt()">Re-synthesize prompt with current context/chunks</button>
@@ -131,6 +143,26 @@ Output should read like a refined, publication-ready medical illustration brief 
                         </div>
                     </div>
 
+                    <!-- Doc chat section -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Chat With Selected Docs</div>
+                            <span>Ask direct questions grounded in your chosen sources</span>
+                        </div>
+                        <div class="helper-text">This chat is separate from prompt generation and answers from selected document context.</div>
+                        <div id="docChatMessages" class="doc-chat-messages"></div>
+                        <textarea id="docChatQuestion" rows="2" placeholder="Ask a question about the selected docs..."></textarea>
+                        <div class="rag-retrieval-actions">
+                            <button type="button" class="rag-btn rag-btn-primary" id="askDocsBtn" onclick="askDocsQuestion()">Ask docs</button>
+                            <button type="button" class="rag-btn rag-btn-secondary" id="clearDocChatBtn" onclick="clearDocChatHistory()">Clear chat</button>
+                        </div>
+                        <div class="rag-retrieval-loading hidden" id="docChatLoading">
+                            <span class="rag-spinner"></span>
+                            <span>Generating answer...</span>
+                        </div>
+                        <div class="rag-retrieval-error hidden" id="docChatError"></div>
+                    </div>
+
                     <!-- Generated Prompt Section -->
                     <div class="section">
                         <div class="field-label">
@@ -146,9 +178,24 @@ Output should read like a refined, publication-ready medical illustration brief 
                         </div>
                     </div>
 
+                    <!-- Upload image + create image from edits -->
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Upload Image And Create Image</div>
+                            <span>Use your own input image</span>
+                        </div>
+                        <div class="helper-text">Upload any image, describe the changes, and generate a revised image in the same chat flow.</div>
+                        <div class="upload-edit-grid">
+                            <input id="uploadImageInput" class="upload-file-input" type="file" accept="image/png,image/jpeg,image/webp" />
+                            <textarea id="uploadImageChanges" rows="3" placeholder="Describe exactly how to edit the uploaded image..."></textarea>
+                            <button onclick="uploadAndEditImage()" id="uploadEditBtn">Create Image</button>
+                            <div id="uploadEditProgress" class="upload-progress" aria-live="polite"></div>
+                        </div>
+                    </div>
+
                 </div>
 
-                <!-- Secondary column: preview + chat history -->
+                <!-- Secondary column: preview + history + compact metrics -->
                 <div class="column">
                     <!-- Live image preview -->
                     <div class="section">
@@ -192,6 +239,52 @@ Output should read like a refined, publication-ready medical illustration brief 
                                 Download latest image
                             </button>
                         </div>
+                    </div>
+
+                    <!-- LLM usage metrics (compact footer panel) -->
+                    <div class="section llm-metrics-compact">
+                        <div class="llm-metrics-header-row">
+                            <div class="section-title">LLM Metrics</div>
+                            <div class="llm-total-calls-chip">
+                                Calls: <span id="totalCallsValue">0</span>
+                            </div>
+                        </div>
+
+                        <details class="llm-expand-item" id="tokensMetricsDetails">
+                            <summary class="llm-expand-summary">
+                                <span class="llm-expand-label">Tokens</span>
+                                <span class="llm-expand-total" id="totalTokensValue">0</span>
+                            </summary>
+                            <div class="llm-expand-body">
+                                <div class="llm-breakdown-row">
+                                    <span>GPT</span>
+                                    <span id="gptTokensValue">0</span>
+                                </div>
+                                <div class="llm-breakdown-row">
+                                    <span>Gemini</span>
+                                    <span id="geminiTokensValue">0</span>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="llm-expand-item" id="costMetricsDetails">
+                            <summary class="llm-expand-summary">
+                                <span class="llm-expand-label">Cost (USD)</span>
+                                <span class="llm-expand-total" id="totalCostValue">$0.000000</span>
+                            </summary>
+                            <div class="llm-expand-body">
+                                <div class="llm-breakdown-row">
+                                    <span>GPT</span>
+                                    <span id="gptCostValue">$0.000000</span>
+                                </div>
+                                <div class="llm-breakdown-row">
+                                    <span>Gemini</span>
+                                    <span id="geminiCostValue">$0.000000</span>
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="llm-metrics-note" id="llmMetricsNote">Estimated from configured pricing rates.</div>
                     </div>
                 </div>
             </div>

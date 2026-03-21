@@ -25,8 +25,97 @@ let activeChatId = null;
 let nextChatId = 1;
 let nextMessageId = 1;
 let lastRagChunks = [];
+let docChatHistory = [];
 const NO_RAG_OPTION_VALUE = 'NO_RAG';
 const WEB_RETRIEVAL_OPTION_VALUE = 'WEB_RETRIEVAL';
+let llmMetricsPollingId = null;
+const SESSION_STORAGE_KEY = 'image_generator_session_id';
+
+function generateClientSessionId() {
+    const randomPart = Math.random().toString(36).slice(2, 10);
+    return 'sess_' + Date.now().toString(36) + '_' + randomPart;
+}
+
+let CLIENT_SESSION_ID = generateClientSessionId();
+const SESSION_METRICS_SCOPE = 'sess-' + Date.now() + '-' + Math.floor(Math.random() * 1_000_000);
+
+function getActiveChatMetricId() {
+    const chatPart = activeChatId ? ('chat-' + String(activeChatId)) : 'chat-0';
+    return SESSION_METRICS_SCOPE + ':' + chatPart;
+}
+
+function withActiveChatId(payload) {
+    return {
+        ...(payload || {}),
+        chat_id: getActiveChatMetricId(),
+        session_id: CLIENT_SESSION_ID,
+    };
+}
+
+async function resetServerSession(sessionId) {
+    if (!sessionId) return;
+    try {
+        await fetch('/session/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId }),
+            keepalive: true,
+        });
+    } catch (error) {
+        // Best-effort cleanup; ignore network issues during tab close/reload.
+    }
+}
+
+function formatInteger(value) {
+    const parsed = Number(value) || 0;
+    return parsed.toLocaleString();
+}
+
+function formatUsd(value) {
+    const parsed = Number(value) || 0;
+    return '$' + parsed.toFixed(6);
+}
+
+async function refreshLlmMetrics() {
+    try {
+        const response = await fetch('/llm-metrics?chat_id=' + encodeURIComponent(getActiveChatMetricId()));
+        if (!response.ok) return;
+        const data = await response.json();
+        const providers = data && data.providers ? data.providers : {};
+        const gpt = providers.gpt || {};
+        const gemini = providers.gemini || {};
+        const overall = data && data.overall ? data.overall : {};
+
+        const gptTokensEl = document.getElementById('gptTokensValue');
+        const gptCostEl = document.getElementById('gptCostValue');
+        const geminiTokensEl = document.getElementById('geminiTokensValue');
+        const geminiCostEl = document.getElementById('geminiCostValue');
+        const totalTokensEl = document.getElementById('totalTokensValue');
+        const totalCostEl = document.getElementById('totalCostValue');
+        const totalCallsEl = document.getElementById('totalCallsValue');
+        const noteEl = document.getElementById('llmMetricsNote');
+
+        const gptCost = Number(gpt.estimated_cost_usd) || 0;
+        const geminiCost = Number(gemini.estimated_cost_usd) || 0;
+        const totalCost = Number(overall.estimated_cost_usd);
+        const resolvedTotalCost = Number.isFinite(totalCost) ? totalCost : (gptCost + geminiCost);
+
+        if (gptTokensEl) gptTokensEl.textContent = formatInteger(gpt.total_tokens);
+        if (gptCostEl) gptCostEl.textContent = formatUsd(gptCost);
+        if (geminiTokensEl) geminiTokensEl.textContent = formatInteger(gemini.total_tokens);
+        if (geminiCostEl) geminiCostEl.textContent = formatUsd(geminiCost);
+        if (totalTokensEl) totalTokensEl.textContent = formatInteger(overall.total_tokens);
+        if (totalCostEl) totalCostEl.textContent = formatUsd(resolvedTotalCost);
+        if (totalCallsEl) totalCallsEl.textContent = formatInteger(overall.calls);
+        if (noteEl) {
+            noteEl.textContent = data && data.cost_note
+                ? data.cost_note
+                : 'Estimated from configured pricing rates.';
+        }
+    } catch (error) {
+        // Keep the UI silent if metrics endpoint is temporarily unavailable.
+    }
+}
 
 function isNoRagSelected(docNames) {
     const selected = Array.isArray(docNames) ? docNames : getSelectedDocNames();
@@ -51,57 +140,231 @@ function updateRetrievalActionsState() {
     }
 }
 
-function normalizeDocSelection() {
-    const select = document.getElementById('ragDocNameSelect');
-    if (!select) return;
+function renderDocChatHistory() {
+    const container = document.getElementById('docChatMessages');
+    if (!container) return;
 
-    const selectedValues = Array.from(select.selectedOptions || []).map(option => option.value);
+    if (!docChatHistory.length) {
+        container.innerHTML = '<p class="doc-chat-empty">Ask a question to start document chat.</p>';
+        return;
+    }
+
+    container.innerHTML = '';
+    docChatHistory.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'doc-chat-row ' + (entry.role === 'user' ? 'doc-chat-user' : 'doc-chat-assistant');
+
+        const roleLabel = document.createElement('div');
+        roleLabel.className = 'doc-chat-role';
+        roleLabel.textContent = entry.role === 'user' ? 'You' : 'Assistant';
+
+        const content = document.createElement('div');
+        content.className = 'doc-chat-content';
+        content.textContent = entry.text;
+
+        row.appendChild(roleLabel);
+        row.appendChild(content);
+        container.appendChild(row);
+    });
+    container.scrollTop = container.scrollHeight;
+}
+
+function clearDocChatHistory() {
+    docChatHistory = [];
+    const errorEl = document.getElementById('docChatError');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+    renderDocChatHistory();
+}
+
+function buildDocChatHistoryContext() {
+    if (!Array.isArray(docChatHistory) || docChatHistory.length === 0) {
+        return '';
+    }
+    return docChatHistory
+        .map(entry => {
+            const role = entry && entry.role === 'assistant' ? 'Assistant' : 'User';
+            const text = entry && entry.text ? String(entry.text) : '';
+            return role + ': ' + text;
+        })
+        .join('\n');
+}
+
+async function askDocsQuestion() {
+    const inputEl = document.getElementById('docChatQuestion');
+    const loadingEl = document.getElementById('docChatLoading');
+    const errorEl = document.getElementById('docChatError');
+    const askBtn = document.getElementById('askDocsBtn');
+
+    const question = inputEl ? inputEl.value.trim() : '';
+    if (!question) {
+        if (errorEl) {
+            errorEl.textContent = 'Enter a question first.';
+            errorEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    const selectedDocNames = getSelectedDocNames();
+    const chatHistoryContext = buildDocChatHistoryContext();
+    if (isNoRagSelected(selectedDocNames)) {
+        if (errorEl) {
+            errorEl.textContent = 'NO RAG is selected. Enable source docs to chat.';
+            errorEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    docChatHistory.push({ role: 'user', text: question });
+    renderDocChatHistory();
+    if (inputEl) inputEl.value = '';
+
+    if (loadingEl) loadingEl.classList.remove('hidden');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+    if (askBtn) askBtn.disabled = true;
+
+    try {
+        const response = await fetch('/chat-with-docs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...withActiveChatId({
+                    user_question: question,
+                    selected_doc_names: selectedDocNames,
+                    chat_history: chatHistoryContext
+                })
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to get answer');
+        }
+
+        docChatHistory.push({
+            role: 'assistant',
+            text: String(data.answer || 'No answer generated.')
+        });
+        renderDocChatHistory();
+
+        updateRagDetails(data.search_query, data.chunks || [], true);
+        if (Array.isArray(data.selected_doc_names)) {
+            setSelectedDocNames(data.selected_doc_names);
+        }
+    } catch (error) {
+        docChatHistory.push({
+            role: 'assistant',
+            text: 'Error: ' + (error.message || 'Unknown error')
+        });
+        renderDocChatHistory();
+        if (errorEl) {
+            errorEl.textContent = 'Error: ' + (error.message || 'Unknown error');
+            errorEl.classList.remove('hidden');
+        }
+    } finally {
+        if (loadingEl) loadingEl.classList.add('hidden');
+        if (askBtn) askBtn.disabled = false;
+    }
+}
+
+function normalizeDocSelection() {
+    const baseSelect = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+    if (!baseSelect) return;
+
+    const selectedValues = Array.from(baseSelect.selectedOptions || []).map(option => option.value);
     if (selectedValues.includes(NO_RAG_OPTION_VALUE)) {
-        Array.from(select.options || []).forEach(option => {
+        Array.from(baseSelect.options || []).forEach(option => {
             option.selected = option.value === NO_RAG_OPTION_VALUE;
         });
+        if (sessionSelect) {
+            Array.from(sessionSelect.options || []).forEach(option => {
+                option.selected = false;
+            });
+        }
     }
 
     updateRetrievalActionsState();
 }
 
 function getSelectedDocNames() {
-    const select = document.getElementById('ragDocNameSelect');
-    if (!select) return [];
-    return Array.from(select.selectedOptions || [])
-        .map(option => option.value)
-        .filter(value => !!value);
+    const baseSelect = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+    const baseValues = baseSelect
+        ? Array.from(baseSelect.selectedOptions || [])
+            .map(option => option.value)
+            .filter(value => !!value)
+            .map(value => {
+                if (value === NO_RAG_OPTION_VALUE || value === WEB_RETRIEVAL_OPTION_VALUE) {
+                    return value;
+                }
+                return value.startsWith('base::') ? value : ('base::' + value);
+            })
+        : [];
+
+    const sessionValues = sessionSelect
+        ? Array.from(sessionSelect.selectedOptions || [])
+            .map(option => option.value)
+            .filter(value => !!value)
+            .map(value => value.startsWith('session::') ? value : ('session::' + value))
+        : [];
+
+    return [...baseValues, ...sessionValues].filter(value => !!value);
 }
 
 function setSelectedDocNames(docNames) {
-    const select = document.getElementById('ragDocNameSelect');
-    if (!select) return;
+    const baseSelect = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+    if (!baseSelect) return;
     const selectedSet = new Set(Array.isArray(docNames) ? docNames : []);
     const noRagOnly = selectedSet.has(NO_RAG_OPTION_VALUE);
-    Array.from(select.options || []).forEach(option => {
+    Array.from(baseSelect.options || []).forEach(option => {
+        const baseToken = option.value.startsWith('base::')
+            ? option.value
+            : (option.value === NO_RAG_OPTION_VALUE || option.value === WEB_RETRIEVAL_OPTION_VALUE
+                ? option.value
+                : ('base::' + option.value));
         option.selected = noRagOnly
             ? option.value === NO_RAG_OPTION_VALUE
-            : selectedSet.has(option.value);
+            : selectedSet.has(baseToken) || selectedSet.has(option.value);
     });
+    if (sessionSelect) {
+        Array.from(sessionSelect.options || []).forEach(option => {
+            const sessionToken = option.value.startsWith('session::')
+                ? option.value
+                : ('session::' + option.value);
+            option.selected = !noRagOnly && (selectedSet.has(sessionToken) || selectedSet.has(option.value));
+        });
+    }
     normalizeDocSelection();
 }
 
 async function loadDocNames() {
     const select = document.getElementById('ragDocNameSelect');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
     const errorEl = document.getElementById('ragRetrievalError');
-    if (!select) return;
+    if (!select || !sessionSelect) return;
 
     const previousSelection = getSelectedDocNames();
     select.innerHTML = '';
 
     try {
-        const response = await fetch('/doc-names');
+        const response = await fetch('/doc-names?session_id=' + encodeURIComponent(CLIENT_SESSION_ID));
         const data = await response.json();
         if (!response.ok) {
             throw new Error(data.error || 'Failed to load document names');
         }
 
-        const docNames = Array.isArray(data.doc_names) ? data.doc_names : [];
+        const docNames = Array.isArray(data.base_doc_names || data.doc_names)
+            ? (data.base_doc_names || data.doc_names)
+            : [];
+        const sessionDocNames = Array.isArray(data.session_doc_names)
+            ? data.session_doc_names
+            : [];
 
         const noRagOption = document.createElement('option');
         noRagOption.value = NO_RAG_OPTION_VALUE;
@@ -119,16 +382,30 @@ async function loadDocNames() {
             option.textContent = 'No source documents found';
             option.disabled = true;
             select.appendChild(option);
-            normalizeDocSelection();
-            return;
+        } else {
+            docNames.forEach(docName => {
+                const option = document.createElement('option');
+                option.value = docName;
+                option.textContent = docName;
+                select.appendChild(option);
+            });
         }
 
-        docNames.forEach(docName => {
+        sessionSelect.innerHTML = '';
+        if (sessionDocNames.length === 0) {
             const option = document.createElement('option');
-            option.value = docName;
-            option.textContent = docName;
-            select.appendChild(option);
-        });
+            option.value = '';
+            option.textContent = 'No uploaded docs in this session';
+            option.disabled = true;
+            sessionSelect.appendChild(option);
+        } else {
+            sessionDocNames.forEach(docName => {
+                const option = document.createElement('option');
+                option.value = docName;
+                option.textContent = docName;
+                sessionSelect.appendChild(option);
+            });
+        }
 
         setSelectedDocNames(previousSelection);
         normalizeDocSelection();
@@ -160,6 +437,7 @@ function createNewChat(name) {
     renderConversation();
     updateDownloadButtonVisibility();
     updateChatImageCountDisplay();
+    refreshLlmMetrics();
     return chat;
 }
 
@@ -211,6 +489,7 @@ function handleChatChange(event) {
     renderConversation();
     updateDownloadButtonVisibility();
     updateChatImageCountDisplay();
+    refreshLlmMetrics();
 }
 
 function startNewChat() {
@@ -409,7 +688,7 @@ async function regenerateFromPromptMessage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
     try {
-        const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+        const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ prompt })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
@@ -451,7 +730,7 @@ async function regenerateFromEditMessage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
     try {
-        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: prevFilename, image_data_url: prevImageDataUrl, changes }) });
+        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename: prevFilename, image_data_url: prevImageDataUrl, changes })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
@@ -494,7 +773,7 @@ async function applyChangesToImage(entryIndex, changes) {
     successDiv.classList.remove('active');
     addConversationEntry({ role: 'user', text: changes, type: 'edit_request' });
     try {
-        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, image_data_url: imageDataUrl, changes }) });
+        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl, changes })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
@@ -550,11 +829,7 @@ async function getAccurateImage(entryIndex) {
         const response = await fetch('/get-accurate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                filename,
-                image_data_url: imageDataUrl,
-                original_prompt: originalPrompt
-            })
+            body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl }))
         });
         const data = await response.json();
         if (response.ok) {
@@ -623,10 +898,12 @@ async function generatePrompt() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                system_instruction: systemInstruction,
-                user_question: userQuestion,
-                selected_doc_names: selectedDocNames,
-                disable_rag: disableRag
+                ...withActiveChatId({
+                    system_instruction: systemInstruction,
+                    user_question: userQuestion,
+                    selected_doc_names: selectedDocNames,
+                    disable_rag: disableRag
+                })
             })
         });
 
@@ -691,13 +968,20 @@ function updateRagDetails(searchQuery, chunks, fromRun) {
             const sourceType = (rawMetadata && rawMetadata.source_type) ? String(rawMetadata.source_type) : 'vector';
             const docName = (rawMetadata && rawMetadata.doc_name) || (nestedMetadata && nestedMetadata.doc_name) || 'Unknown';
             const sourceUrl = (rawMetadata && rawMetadata.url) ? String(rawMetadata.url) : '';
+            const similarityScore = (rawMetadata && typeof rawMetadata.similarity_score === 'number')
+                ? rawMetadata.similarity_score
+                : null;
             const sourceLabel = sourceType === 'web' ? 'Web source' : 'doc_name';
             const sourceValue = sourceType === 'web' ? (sourceUrl || 'Unknown URL') : String(docName);
             const item = document.createElement('details');
             item.className = 'rag-chunk-item';
+            const scoreLine = similarityScore !== null
+                ? '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">similarity_score:</span>' + escapeHtml(similarityScore.toFixed(4)) + '</div>'
+                : '';
             item.innerHTML =
                 '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary>' +
                 '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">' + escapeHtml(sourceLabel) + ':</span>' + escapeHtml(sourceValue) + '</div>' +
+                scoreLine +
                 '<div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
             chunksList.appendChild(item);
         });
@@ -741,8 +1025,10 @@ async function reRunRetrieval() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                search_query: searchQuery,
-                selected_doc_names: selectedDocNames
+                ...withActiveChatId({
+                    search_query: searchQuery,
+                    selected_doc_names: selectedDocNames
+                })
             })
         });
         const data = await response.json();
@@ -802,11 +1088,13 @@ async function reSynthesizePrompt() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                system_instruction: systemInstruction,
-                user_question: userQuestion,
-                search_query: searchQuery,
-                chunks: chunks,
-                selected_doc_names: selectedDocNames
+                ...withActiveChatId({
+                    system_instruction: systemInstruction,
+                    user_question: userQuestion,
+                    search_query: searchQuery,
+                    chunks: chunks,
+                    selected_doc_names: selectedDocNames
+                })
             })
         });
         const data = await response.json();
@@ -827,10 +1115,187 @@ async function reSynthesizePrompt() {
     }
 }
 
+async function uploadRagDocument() {
+    const fileInput = document.getElementById('ragUploadFileInput');
+    const uploadBtn = document.getElementById('uploadRagDocBtn');
+    const statusEl = document.getElementById('ragUploadStatus');
+    const sessionSelect = document.getElementById('ragSessionDocNameSelect');
+
+    const file = fileInput && fileInput.files && fileInput.files.length > 0
+        ? fileInput.files[0]
+        : null;
+
+    if (!file) {
+        if (statusEl) statusEl.textContent = 'Choose a PDF file first.';
+        return;
+    }
+    if (!String(file.name || '').toLowerCase().endsWith('.pdf')) {
+        if (statusEl) statusEl.textContent = 'Only PDF uploads are supported.';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('session_id', CLIENT_SESSION_ID);
+    formData.append('file', file);
+
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+    }
+    if (statusEl) statusEl.textContent = 'Processing PDF: chunking, embedding, and saving...';
+
+    try {
+        const response = await fetch('/upload-doc', {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Upload failed');
+        }
+
+        if (statusEl) {
+            statusEl.textContent = 'Uploaded ' + data.doc_name + ' (' + data.chunks_inserted + ' chunks)';
+        }
+
+        await loadDocNames();
+        if (Array.isArray(data.session_doc_names) && sessionSelect) {
+            Array.from(sessionSelect.options || []).forEach(option => {
+                option.selected = data.session_doc_names.includes(option.value);
+            });
+        }
+        const baseSelect = document.getElementById('ragDocNameSelect');
+        if (baseSelect) {
+            Array.from(baseSelect.options || []).forEach(option => {
+                if (option.value === NO_RAG_OPTION_VALUE || option.value === WEB_RETRIEVAL_OPTION_VALUE) {
+                    option.selected = false;
+                } else {
+                    option.selected = false;
+                }
+            });
+        }
+        normalizeDocSelection();
+        if (fileInput) fileInput.value = '';
+    } catch (error) {
+        if (statusEl) statusEl.textContent = 'Upload failed: ' + (error.message || 'Unknown error');
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload PDF';
+        }
+    }
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Failed to read uploaded image'));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function uploadAndEditImage() {
+    const fileInput = document.getElementById('uploadImageInput');
+    const changesEl = document.getElementById('uploadImageChanges');
+    const uploadBtn = document.getElementById('uploadEditBtn');
+    const progressEl = document.getElementById('uploadEditProgress');
+
+    const file = fileInput && fileInput.files && fileInput.files.length > 0
+        ? fileInput.files[0]
+        : null;
+    const changes = changesEl ? changesEl.value.trim() : '';
+
+    if (!file) {
+        showError('imageError', 'Please upload an image first.');
+        return;
+    }
+    if (!changes) {
+        showError('imageError', 'Please describe the edits you want to apply.');
+        return;
+    }
+
+    const loading = document.getElementById('imageLoading');
+    const errorDiv = document.getElementById('imageError');
+    const successDiv = document.getElementById('imageSuccess');
+
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'In progress...';
+    }
+    if (progressEl) {
+        progressEl.textContent = 'In progress: creating image from uploaded input...';
+        progressEl.classList.add('active');
+    }
+    loading.classList.add('active');
+    errorDiv.classList.remove('active');
+    successDiv.classList.remove('active');
+
+    try {
+        const imageDataUrl = await readFileAsDataUrl(file);
+        addConversationEntry({
+            role: 'user',
+            text: 'Uploaded image edit request: ' + changes,
+            type: 'edit_request'
+        });
+
+        const response = await fetch('/edit-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...withActiveChatId({
+                    filename: file.name || 'uploaded-image.png',
+                    image_data_url: imageDataUrl,
+                    changes
+                })
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            const displaySrc = data.image_data_url || data.image_url;
+            addConversationEntry({
+                role: 'assistant',
+                imageUrl: data.image_url,
+                imageDataUrl: data.image_data_url || null,
+                filename: data.filename,
+                type: 'edited_image',
+                sourcePrompt: changes,
+                meta: 'Created image from upload'
+            });
+            displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
+            showSuccess('imageSuccess', 'Image created successfully from uploaded image.');
+            if (changesEl) changesEl.value = '';
+            if (fileInput) fileInput.value = '';
+        } else {
+            showError('imageError', data.error || 'Failed to edit uploaded image');
+            const chat = getActiveChat();
+            if (chat && chat.history.length) chat.history.pop();
+            renderConversation();
+        }
+    } catch (error) {
+        showError('imageError', 'Error: ' + (error.message || 'Network error'));
+        const chat = getActiveChat();
+        if (chat && chat.history.length) chat.history.pop();
+        renderConversation();
+    } finally {
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Create Image';
+        }
+        if (progressEl) {
+            progressEl.classList.remove('active');
+            progressEl.textContent = '';
+        }
+        loading.classList.remove('active');
+    }
 }
 
 async function generateImage() {
@@ -863,7 +1328,9 @@ async function generateImage() {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                prompt: prompt
+                ...withActiveChatId({
+                    prompt: prompt
+                })
             })
         });
 
@@ -1022,15 +1489,32 @@ function initImageInteractions() {
     });
 }
 
-function initApp() {
+async function initApp() {
+    const previousSessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (previousSessionId) {
+        await resetServerSession(previousSessionId);
+    }
+    CLIENT_SESSION_ID = generateClientSessionId();
+    sessionStorage.setItem(SESSION_STORAGE_KEY, CLIENT_SESSION_ID);
+
     initThemeToggle();
     createNewChat('Chat 1');
     loadDocNames();
+    refreshLlmMetrics();
+    if (llmMetricsPollingId) {
+        clearInterval(llmMetricsPollingId);
+    }
+    llmMetricsPollingId = setInterval(refreshLlmMetrics, 4000);
     const ragDocNameSelect = document.getElementById('ragDocNameSelect');
     if (ragDocNameSelect) {
         ragDocNameSelect.addEventListener('change', normalizeDocSelection);
     }
+    const ragSessionDocNameSelect = document.getElementById('ragSessionDocNameSelect');
+    if (ragSessionDocNameSelect) {
+        ragSessionDocNameSelect.addEventListener('change', normalizeDocSelection);
+    }
     updateRetrievalActionsState();
+    renderDocChatHistory();
     initImageInteractions();
 }
 
@@ -1038,10 +1522,20 @@ window.handleChatChange = handleChatChange;
 window.startNewChat = startNewChat;
 window.generatePrompt = generatePrompt;
 window.generateImage = generateImage;
+window.uploadAndEditImage = uploadAndEditImage;
 window.reRunRetrieval = reRunRetrieval;
 window.reSynthesizePrompt = reSynthesizePrompt;
+window.uploadRagDocument = uploadRagDocument;
+window.askDocsQuestion = askDocsQuestion;
+window.clearDocChatHistory = clearDocChatHistory;
 window.downloadImage = downloadImage;
 window.closeImageFullscreen = closeImageFullscreen;
 
 document.addEventListener('DOMContentLoaded', initApp);
+window.addEventListener('beforeunload', function() {
+    const activeSessionId = sessionStorage.getItem(SESSION_STORAGE_KEY) || CLIENT_SESSION_ID;
+    if (!activeSessionId) return;
+    resetServerSession(activeSessionId);
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+});
 
