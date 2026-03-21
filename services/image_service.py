@@ -178,9 +178,10 @@ def _store_image_bytes(prefix: str, image_bytes: bytes) -> Tuple[str, str]:
 def get_accurate_image(
     filename: str,
     image_data_url: Optional[str] = None,
+    original_prompt: Optional[str] = None,
 ) -> Tuple[str, bytes, str, int, int]:
     """
-    Use GPT-4o vision to detect label/arrow flaws in the image, then apply
+    Use GPT-4o vision to detect structural design flaws in the image, then apply
     sequential Gemini correction passes (max 3 flaws per pass, max 5 passes).
 
     Returns (final_filename, final_bytes, final_data_url, flaws_count, iterations).
@@ -204,27 +205,38 @@ def get_accurate_image(
     # --- Step 1: detect flaws with best available vision model (gpt-5.4) ---
     oa_client = openai_lib.OpenAI(api_key=state.openai_api_key)
 
+    generation_intent_context = (
+        f"\n\nGENERATION INTENT (from original prompt):\n{original_prompt.strip()}\n\n"
+        "Use this intent to prioritize which structural properties matter most. "
+        "If a structural detail was explicitly requested in the original prompt, treat deviations from it as high priority. "
+        "If a detail was not requested and does not make the figure scientifically incorrect, treat it as low priority."
+        if original_prompt and original_prompt.strip()
+        else ""
+    )
+
     flaw_detection_prompt = (
         "Examine this diagram image with extreme care.\n\n"
-        "STEP 1 — Inventory: List every visible label (text annotation) and every arrow "
-        "present in the image.\n\n"
-        "STEP 2 — Verify each item against your medical/scientific knowledge:\n"
-        "  • Is each label text anatomically/scientifically correct for the structure it "
-        "annotates?\n"
-        "  • Is each arrow pointing in the correct direction?\n"
-        "  • Is each arrow connected to the correct elements?\n"
-        "  • Are any labels placed on the wrong structure?\n\n"
-        "STEP 3 — Report flaws in a numbered list. Order by severity:\n"
-        "  - List the biggest/most critical flaws FIRST (wrong labels, wrong arrow directions, "
-        "misplaced annotations, major anatomical errors).\n"
-        "  - Then list minor/less significant flaws (typos, slight misplacements, cosmetic issues).\n"
-        "  - Each item must concisely describe ONE flaw: what is wrong and what it should be.\n"
+        "STEP 1 — Inventory: Describe the overall structural design of the diagram — the shapes, "
+        "relative positions, proportions, and connections between parts.\n\n"
+        "STEP 2 — Verify the structural design against your medical/scientific knowledge:\n"
+        "  • Are the depicted structures anatomically/scientifically correct in shape and form?\n"
+        "  • Are their sizes and proportions realistic relative to each other?\n"
+        "  • Are the spatial relationships and topology (what connects to what, and where) accurate?\n"
+        "  • Are any components missing, duplicated, distorted, or placed in the wrong location?\n\n"
+        "STEP 3 — Report structural design flaws in a numbered list. Order by severity:\n"
+        "  - List the biggest/most critical flaws FIRST (major anatomical/topological errors, "
+        "grossly wrong proportions, impossible connections).\n"
+        "  - Then list minor/less significant flaws (slight misplacements, subtle proportion errors, "
+        "cosmetic but still scientifically relevant issues).\n"
+        "  - Each item must concisely describe ONE flaw: what structural aspect is wrong and what "
+        "it should be instead.\n"
         "  - If flaws exist: output a single numbered list (1. ... 2. ...) with the most critical "
-        "flaw as #1 and the least critical last. Enumerate all inaccuracies in this order.\n"
-        "  - If you find absolutely no errors after this thorough review: output the single "
+        "flaw as #1 and the least critical last. Enumerate all structural inaccuracies in this order.\n"
+        "  - If you find absolutely no structural errors after this thorough review: output the single "
         "token NO_FLAWS_DETECTED and nothing else.\n\n"
-        "Do NOT skip steps. Do NOT be lenient — even subtle anatomical or directional errors "
+        "Do NOT skip steps. Do NOT be lenient — even subtle structural or anatomical errors "
         "must be reported. Be as thorough as a human expert reviewing the same image."
+        + generation_intent_context
     )
 
     vision_response = oa_client.chat.completions.create(
@@ -234,11 +246,11 @@ def get_accurate_image(
             {
                 "role": "system",
                 "content": (
-                    "You are a rigorous medical illustration quality-control expert. "
-                    "Your sole job is to detect inaccuracies in labels and arrows in "
-                    "scientific diagrams. You are thorough, critical, and never skip "
-                    "verification. When asked to review a diagram you always find "
-                    "every error, no matter how subtle."
+                "You are a rigorous medical illustration quality-control expert. "
+                "Your sole job is to detect inaccuracies in the structural design of "
+                "scientific diagrams (anatomy, proportions, spatial relationships, topology). "
+                "You are thorough, critical, and never skip verification. When asked to "
+                "review a diagram you always find every structural error, no matter how subtle."
                 ),
             },
             {
@@ -329,6 +341,11 @@ def get_accurate_image(
             "Fix the following specific issues in this diagram image:\n"
             + "\n".join(f"- {f}" for f in batch)
         )
+        if original_prompt and original_prompt.strip():
+            prompt_text += (
+                "\n\nOriginal generation intent to preserve while fixing the issues:\n"
+                f"{original_prompt.strip()}"
+            )
         correction_prompts.append(prompt_text)
 
     logger.info("Applying %d correction pass(es)", len(correction_prompts))

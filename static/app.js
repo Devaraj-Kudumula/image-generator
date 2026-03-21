@@ -256,6 +256,23 @@ function getHistoryEntryByIndex(entryIndex) {
     return chat.history[entryIndex];
 }
 
+function getOriginalPromptForEntry(entryIndex) {
+    const chat = getActiveChat();
+    if (!chat || !chat.history || entryIndex < 0 || entryIndex >= chat.history.length) return '';
+
+    const current = chat.history[entryIndex];
+    if (current && current.sourcePrompt) return current.sourcePrompt;
+
+    for (let i = entryIndex - 1; i >= 0; i--) {
+        const prior = chat.history[i];
+        if (prior && prior.role === 'user' && prior.type === 'prompt' && prior.text) {
+            return prior.text;
+        }
+    }
+
+    return '';
+}
+
 function renderConversation() {
     const container = document.getElementById('conversationContainer');
     if (!container) return;
@@ -509,6 +526,7 @@ async function getAccurateImage(entryIndex) {
     }
     const filename = entry.filename || (entry.imageUrl ? entry.imageUrl.split('/').pop() : null);
     const imageDataUrl = entry.imageDataUrl || entry.imageUrl;
+    const originalPrompt = getOriginalPromptForEntry(entryIndex);
     if (!filename && !imageDataUrl) {
         showError('imageError', 'This image cannot be processed (missing reference).');
         return;
@@ -532,7 +550,11 @@ async function getAccurateImage(entryIndex) {
         const response = await fetch('/get-accurate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filename, image_data_url: imageDataUrl })
+            body: JSON.stringify({
+                filename,
+                image_data_url: imageDataUrl,
+                original_prompt: originalPrompt
+            })
         });
         const data = await response.json();
         if (response.ok) {

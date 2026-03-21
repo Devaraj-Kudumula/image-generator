@@ -234,6 +234,7 @@ def register(app):
             )
             filename = data.get('filename', '')
             image_data_url = data.get('image_data_url', '')
+            original_prompt = data.get('original_prompt', '') or data.get('prompt', '')
 
             if not filename and not image_data_url:
                 logger.warning("Request missing filename and image_data_url")
@@ -257,7 +258,7 @@ def register(app):
             try:
                 final_filename, final_bytes, final_data_url, flaws_count, iterations = (
                     image_service.get_accurate_image(
-                        filename, image_data_url or None
+                        filename, image_data_url or None, original_prompt or None
                     )
                 )
             except ValueError as e:
