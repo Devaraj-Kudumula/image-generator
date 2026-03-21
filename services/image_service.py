@@ -122,6 +122,21 @@ def _summarize_image_for_trace(
     return out
 
 
+# Appended to Gemini edit prompts when we must limit drift (accuracy reiteration).
+_EDIT_VISUAL_CONTINUITY = (
+    "\n\nVISUAL CONTINUITY (mandatory):\n"
+    "• Keep the same viewpoint, framing, crop, and composition as the input — "
+    "do not change camera angle, zoom, or layout.\n"
+    "• Preserve background, margins, canvas edges, and negative space; "
+    "only alter regions the fix explicitly requires.\n"
+    "• Match the existing color palette, saturation, contrast, and lighting; "
+    "do not recolor, regrade, or restyle the image for a 'new' look.\n"
+    "• Keep the same illustration style, line weights, fills, and shadows.\n"
+    "• Make the smallest edit that fixes the issue; the result should look "
+    "almost the same as the input except for the corrected details.\n"
+)
+
+
 def edit_image(
     filename: str,
     changes: str,
@@ -129,6 +144,7 @@ def edit_image(
     trace: Optional[List[Dict[str, Any]]] = None,
     trace_step_id: Optional[str] = None,
     trace_title: Optional[str] = None,
+    preserve_visual_identity: bool = False,
 ) -> Tuple[str, bytes, str]:
     """
     Edit an existing image with Gemini. Returns (new_filename, edited_bytes, edited_data_url).
@@ -141,6 +157,7 @@ def edit_image(
     prompt = (
         "Edit the following image based on the requested changes:\n\n"
         f"Changes: {changes}"
+        + (_EDIT_VISUAL_CONTINUITY if preserve_visual_identity else "")
     )
     try:
         response = state.gemini_client.models.generate_content(
@@ -526,6 +543,9 @@ def get_accurate_image(
         "editing instruction that tells the image model exactly what to fix. "
         "Be specific about what is wrong and what the correct version should look like. "
         "Do NOT fix labels or text — structural changes only. "
+        "The instruction MUST require preserving the original viewpoint, framing, "
+        "composition, background, color palette, lighting, and illustration style — "
+        "only surgically correct the listed structural issues with minimal visual drift. "
         "Output the instruction as plain text (no preamble, no bullet points)."
     )
 
@@ -586,7 +606,9 @@ def get_accurate_image(
         "to the correct structures, and re-render ALL text in a clean sans-serif font "
         "with no blurring, warping, distortion, or overlapping — even if no specific "
         "label errors were found, because prior edit passes may have degraded text quality. "
-        "Do NOT change any underlying structures or anatomy. "
+        "Do NOT change any underlying structures or anatomy, viewpoint, framing, "
+        "background, or overall colors — text and leader lines only unless a label fix "
+        "requires a tiny local adjustment. "
         "Output the instruction as plain text (no preamble, no bullet points)."
     )
     label_polish_user = f"Label/annotation flaws to fix:\n{label_flaw_summary}" + intent_snippet
@@ -649,6 +671,7 @@ def get_accurate_image(
             trace_title=(
                 f"Gemini edit — {pass_kind} ({i + 1}/{len(correction_prompts)})"
             ),
+            preserve_visual_identity=True,
         )
 
     if trace is not None:
