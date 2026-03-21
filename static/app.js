@@ -71,11 +71,6 @@ function formatInteger(value) {
     return parsed.toLocaleString();
 }
 
-function formatUsd(value) {
-    const parsed = Number(value) || 0;
-    return '$' + parsed.toFixed(6);
-}
-
 async function refreshLlmMetrics() {
     try {
         const response = await fetch('/llm-metrics?chat_id=' + encodeURIComponent(getActiveChatMetricId()));
@@ -87,30 +82,17 @@ async function refreshLlmMetrics() {
         const overall = data && data.overall ? data.overall : {};
 
         const gptTokensEl = document.getElementById('gptTokensValue');
-        const gptCostEl = document.getElementById('gptCostValue');
         const geminiTokensEl = document.getElementById('geminiTokensValue');
-        const geminiCostEl = document.getElementById('geminiCostValue');
         const totalTokensEl = document.getElementById('totalTokensValue');
-        const totalCostEl = document.getElementById('totalCostValue');
         const totalCallsEl = document.getElementById('totalCallsValue');
         const noteEl = document.getElementById('llmMetricsNote');
 
-        const gptCost = Number(gpt.estimated_cost_usd) || 0;
-        const geminiCost = Number(gemini.estimated_cost_usd) || 0;
-        const totalCost = Number(overall.estimated_cost_usd);
-        const resolvedTotalCost = Number.isFinite(totalCost) ? totalCost : (gptCost + geminiCost);
-
         if (gptTokensEl) gptTokensEl.textContent = formatInteger(gpt.total_tokens);
-        if (gptCostEl) gptCostEl.textContent = formatUsd(gptCost);
         if (geminiTokensEl) geminiTokensEl.textContent = formatInteger(gemini.total_tokens);
-        if (geminiCostEl) geminiCostEl.textContent = formatUsd(geminiCost);
         if (totalTokensEl) totalTokensEl.textContent = formatInteger(overall.total_tokens);
-        if (totalCostEl) totalCostEl.textContent = formatUsd(resolvedTotalCost);
         if (totalCallsEl) totalCallsEl.textContent = formatInteger(overall.calls);
         if (noteEl) {
-            noteEl.textContent = data && data.cost_note
-                ? data.cost_note
-                : 'Estimated from configured pricing rates.';
+            noteEl.textContent = 'Token counts for this session.';
         }
     } catch (error) {
         // Keep the UI silent if metrics endpoint is temporarily unavailable.
@@ -535,6 +517,23 @@ function getHistoryEntryByIndex(entryIndex) {
     return chat.history[entryIndex];
 }
 
+function getOriginalPromptForEntry(entryIndex) {
+    const chat = getActiveChat();
+    if (!chat || !chat.history || entryIndex < 0 || entryIndex >= chat.history.length) return '';
+
+    const current = chat.history[entryIndex];
+    if (current && current.sourcePrompt) return current.sourcePrompt;
+
+    for (let i = entryIndex - 1; i >= 0; i--) {
+        const prior = chat.history[i];
+        if (prior && prior.role === 'user' && prior.type === 'prompt' && prior.text) {
+            return prior.text;
+        }
+    }
+
+    return '';
+}
+
 function renderConversation() {
     const container = document.getElementById('conversationContainer');
     if (!container) return;
@@ -598,14 +597,20 @@ function renderConversation() {
                 metaEl.textContent = entry.meta;
                 bubble.appendChild(metaEl);
             }
+            if (entry.accuracyTrace && entry.accuracyTrace.length) {
+                const tracePanel = buildAccuracyTracePanel(entry.accuracyTrace);
+                if (tracePanel) bubble.appendChild(tracePanel);
+            }
             const inlineEdit = document.createElement('div');
             inlineEdit.className = 'message-edit-inline';
-            inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-btn">Get Accurate</button></div>';
+            inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions inline-accurate-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-btn">Get Accurate</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-trace-btn">Get Accurate + log</button></div>';
             const changeTa = inlineEdit.querySelector('.inline-changes-textarea');
             const applyBtn = inlineEdit.querySelector('.inline-apply-changes-btn');
             const accurateBtn = inlineEdit.querySelector('.inline-get-accurate-btn');
+            const accurateTraceBtn = inlineEdit.querySelector('.inline-get-accurate-trace-btn');
             applyBtn.onclick = () => applyChangesToImage(idx, changeTa.value.trim());
             accurateBtn.onclick = () => getAccurateImage(idx);
+            accurateTraceBtn.onclick = () => getAccurateImage(idx, { includeTrace: true });
             bubble.appendChild(inlineEdit);
         }
 
@@ -780,7 +785,55 @@ async function applyChangesToImage(entryIndex, changes) {
     }
 }
 
-async function getAccurateImage(entryIndex) {
+function buildAccuracyTracePanel(steps) {
+    if (!steps || !steps.length) return null;
+    const wrap = document.createElement('details');
+    wrap.className = 'accuracy-trace-panel llm-expand-item';
+    const sum = document.createElement('summary');
+    sum.className = 'llm-expand-summary';
+    const label = document.createElement('span');
+    label.className = 'llm-expand-label';
+    label.textContent = 'Accuracy pipeline';
+    const total = document.createElement('span');
+    total.className = 'llm-expand-total';
+    total.textContent = String(steps.length) + ' steps';
+    sum.appendChild(label);
+    sum.appendChild(total);
+    const body = document.createElement('div');
+    body.className = 'llm-expand-body accuracy-trace-body';
+    steps.forEach((step, i) => {
+        const block = document.createElement('div');
+        block.className = 'accuracy-trace-step';
+        const h = document.createElement('div');
+        h.className = 'accuracy-trace-step-title';
+        h.textContent = (i + 1) + '. ' + (step.title || step.id || 'Step');
+        block.appendChild(h);
+        const prov = [step.provider, step.model].filter(Boolean).join(' · ');
+        if (prov) {
+            const meta = document.createElement('div');
+            meta.className = 'accuracy-trace-step-meta';
+            meta.textContent = prov;
+            block.appendChild(meta);
+        }
+        const preIn = document.createElement('pre');
+        preIn.className = 'accuracy-trace-io';
+        preIn.textContent = 'Input\n' + JSON.stringify(step.input != null ? step.input : {}, null, 2);
+        const preOut = document.createElement('pre');
+        preOut.className = 'accuracy-trace-io';
+        preOut.textContent = 'Output\n' + JSON.stringify(step.output != null ? step.output : {}, null, 2);
+        block.appendChild(preIn);
+        block.appendChild(preOut);
+        body.appendChild(block);
+    });
+    wrap.appendChild(sum);
+    wrap.appendChild(body);
+    return wrap;
+}
+
+async function getAccurateImage(entryIndex, options) {
+    const opts = options && typeof options === 'object' ? options : {};
+    const includeTrace = !!opts.includeTrace;
+
     const entry = getHistoryEntryByIndex(entryIndex);
     if (!entry || (!entry.imageUrl && !entry.imageDataUrl)) {
         showError('imageError', 'This image cannot be processed (missing reference).');
@@ -788,14 +841,18 @@ async function getAccurateImage(entryIndex) {
     }
     const filename = entry.filename || (entry.imageUrl ? entry.imageUrl.split('/').pop() : null);
     const imageDataUrl = entry.imageDataUrl || entry.imageUrl;
+    const originalPrompt = getOriginalPromptForEntry(entryIndex);
     if (!filename && !imageDataUrl) {
         showError('imageError', 'This image cannot be processed (missing reference).');
         return;
     }
 
-    const btn = document.querySelector(`[data-entry-index="${entryIndex}"] .inline-get-accurate-btn`);
-    const applyBtn = document.querySelector(`[data-entry-index="${entryIndex}"] .inline-apply-changes-btn`);
+    const rowSel = `[data-entry-index="${entryIndex}"]`;
+    const btn = document.querySelector(`${rowSel} .inline-get-accurate-btn`);
+    const traceBtn = document.querySelector(`${rowSel} .inline-get-accurate-trace-btn`);
+    const applyBtn = document.querySelector(`${rowSel} .inline-apply-changes-btn`);
     if (btn) btn.disabled = true;
+    if (traceBtn) traceBtn.disabled = true;
     if (applyBtn) applyBtn.disabled = true;
 
     const loading = document.getElementById('imageLoading');
@@ -805,13 +862,21 @@ async function getAccurateImage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
 
-    addConversationEntry({ role: 'user', text: 'Get Accurate: detecting and correcting label/arrow flaws…', type: 'get_accurate_request' });
+    const userLine = includeTrace
+        ? 'Get Accurate (with step log): detecting and correcting flaws…'
+        : 'Get Accurate: detecting and correcting label/arrow flaws…';
+    addConversationEntry({ role: 'user', text: userLine, type: 'get_accurate_request' });
 
     try {
         const response = await fetch('/get-accurate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl }))
+            body: JSON.stringify(withActiveChatId({
+                filename,
+                image_data_url: imageDataUrl,
+                original_prompt: originalPrompt,
+                include_trace: includeTrace
+            }))
         });
         const data = await response.json();
         if (response.ok) {
@@ -821,14 +886,18 @@ async function getAccurateImage(entryIndex) {
             const metaLabel = flaws > 0
                 ? `Accurate image (${flaws} flaw${flaws !== 1 ? 's' : ''} fixed in ${iters} pass${iters !== 1 ? 'es' : ''})`
                 : 'Accurate image (no flaws detected)';
-            addConversationEntry({
+            const assistantEntry = {
                 role: 'assistant',
                 imageUrl: data.image_url,
                 imageDataUrl: data.image_data_url || null,
                 filename: data.filename,
                 type: 'accurate_image',
                 meta: metaLabel
-            });
+            };
+            if (includeTrace && Array.isArray(data.accuracy_trace)) {
+                assistantEntry.accuracyTrace = data.accuracy_trace;
+            }
+            addConversationEntry(assistantEntry);
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
             showSuccess('imageSuccess', flaws > 0 ? `Accuracy refined: ${flaws} flaw(s) corrected.` : 'No flaws found — image is accurate.');
         } else {
@@ -844,6 +913,7 @@ async function getAccurateImage(entryIndex) {
         renderConversation();
     } finally {
         if (btn) btn.disabled = false;
+        if (traceBtn) traceBtn.disabled = false;
         if (applyBtn) applyBtn.disabled = false;
         loading.classList.remove('active');
     }
