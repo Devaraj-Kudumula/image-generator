@@ -235,6 +235,7 @@ def register(app):
             filename = data.get('filename', '')
             image_data_url = data.get('image_data_url', '')
             original_prompt = data.get('original_prompt', '') or data.get('prompt', '')
+            include_trace = bool(data.get('include_trace'))
 
             if not filename and not image_data_url:
                 logger.warning("Request missing filename and image_data_url")
@@ -256,10 +257,18 @@ def register(app):
             api_start = time.time()
 
             try:
-                final_filename, final_bytes, final_data_url, flaws_count, iterations = (
-                    image_service.get_accurate_image(
-                        filename, image_data_url or None, original_prompt or None
-                    )
+                (
+                    final_filename,
+                    final_bytes,
+                    final_data_url,
+                    flaws_count,
+                    iterations,
+                    accuracy_trace,
+                ) = image_service.get_accurate_image(
+                    filename,
+                    image_data_url or None,
+                    original_prompt or None,
+                    collect_trace=include_trace,
                 )
             except ValueError as e:
                 msg = str(e)
@@ -283,14 +292,17 @@ def register(app):
             logger.info("[/get-accurate] Success in %.2fs", request_time)
             logger.info("=" * 50)
 
-            return jsonify({
+            payload = {
                 'image_url': image_url,
                 'filename': final_filename,
                 'image_data_url': final_data_url,
                 'flaws_detected': flaws_count,
                 'iterations': iterations,
                 'success': True,
-            })
+            }
+            if include_trace and accuracy_trace is not None:
+                payload['accuracy_trace'] = accuracy_trace
+            return jsonify(payload)
 
         except Exception as e:
             request_time = time.time() - request_start
