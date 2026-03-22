@@ -87,7 +87,7 @@ def init_mongo() -> Tuple[
     try:
         logger.info("Initializing embedding model...")
         embedding_model = OpenAIEmbeddings(
-            model="text-embedding-ada-002",
+            model="text-embedding-3-large",
             api_key=config.OPENAI_API_KEY,
             request_timeout=45,
             max_retries=2,
@@ -152,7 +152,7 @@ def init_mongo() -> Tuple[
         logger.error("1. Verify MONGODB_URI environment variable is set in Render")
         logger.error("2. Check MongoDB Atlas network access allows 0.0.0.0/0")
         logger.error("3. Verify database credentials are correct")
-        logger.error("4. Ensure vector search index 'vector_index' exists")
+        logger.error("4. Ensure vector search index '%s' exists", config.INDEX_NAME)
         logger.error("5. Use Python linked with OpenSSL 1.1.1+ (recommended OpenSSL 3.x)")
         logger.error("=" * 60)
         vectorstore = None

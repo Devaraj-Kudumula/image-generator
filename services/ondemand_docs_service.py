@@ -43,7 +43,7 @@ def _get_or_create_embedding_model() -> Optional[OpenAIEmbeddings]:
     if not config.OPENAI_API_KEY:
         return None
     return OpenAIEmbeddings(
-        model="text-embedding-ada-002",
+        model="text-embedding-3-large",
         api_key=config.OPENAI_API_KEY,
         request_timeout=45,
         max_retries=2,
@@ -65,7 +65,7 @@ def _create_vector_index_if_missing(collection: Any, index_name: str) -> None:
             {
                 "type": "vector",
                 "path": "embedding",
-                "numDimensions": 1536,
+                "numDimensions": 3072,
                 "similarity": "cosine",
             },
             {

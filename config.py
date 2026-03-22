@@ -24,11 +24,11 @@ GOOGLE_API_KEY = os.getenv('GOOGLE_GENERATIVE_AI_API_KEY')
 # MongoDB
 MONGODB_URI = os.getenv(
     'MONGODB_URI',
-    'mongodb+srv://db_user:db_user@cluster0.9a1tk8o.mongodb.net/?retryWrites=true&w=majority',
+    'mongodb+srv://devarajkudumulanew:12345@cluster0.9iljp.mongodb.net/',
 ).strip().strip('"').strip("'")
 
 DB_NAME = "medical_vector_db"
-COLLECTION_NAME = "vector_chunks_embeds"
+COLLECTION_NAME = "new_vector_chunks"
 INDEX_NAME = "default"
 
 # Session-scoped on-demand document store
