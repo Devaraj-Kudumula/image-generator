@@ -506,6 +506,10 @@ button:disabled {
     align-items: center;
 }
 
+.message-edit-inline .inline-accurate-actions {
+    flex-wrap: wrap;
+}
+
 .message-edit-inline .inline-edit-actions button {
     margin-top: 0;
     padding: 8px 14px;
@@ -1254,6 +1258,58 @@ button:disabled {
     margin-top: 8px;
     font-size: 0.72rem;
     color: var(--text-muted-2);
+}
+
+.message-bubble .accuracy-trace-panel {
+    margin-top: 10px;
+    width: 100%;
+    max-width: min(100%, 640px);
+}
+
+.accuracy-trace-body {
+    max-height: min(50vh, 420px);
+    overflow-y: auto;
+}
+
+.accuracy-trace-step {
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: var(--bg-section);
+}
+
+.accuracy-trace-step:last-child {
+    margin-bottom: 0;
+}
+
+.accuracy-trace-step-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.accuracy-trace-step-meta {
+    font-size: 0.72rem;
+    color: var(--text-muted-2);
+    margin-bottom: 6px;
+}
+
+.accuracy-trace-io {
+    font-size: 0.7rem;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 6px 0 0;
+    padding: 8px;
+    border-radius: 6px;
+    background: var(--bg-muted);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-light);
+    font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', Menlo, Consolas, monospace;
+    max-height: 220px;
+    overflow-y: auto;
 }
 
 .image-fullscreen-overlay {

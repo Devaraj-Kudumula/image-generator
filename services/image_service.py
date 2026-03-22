@@ -6,7 +6,7 @@ import math
 import re
 from datetime import datetime
 from io import BytesIO
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import openai as openai_lib
 from PIL import Image
@@ -98,10 +98,53 @@ def load_image_for_edit(
     )
 
 
+def _summarize_image_for_trace(
+    image_data_url: Optional[str], filename_hint: Optional[str] = None
+) -> Dict[str, Any]:
+    """Compact description of an image payload for UI trace (no raw base64)."""
+    out: Dict[str, Any] = {}
+    if filename_hint:
+        out["filename"] = filename_hint
+    if not image_data_url:
+        out["note"] = "No data URL (image loaded by filename from server store)."
+        return out
+    n = len(image_data_url)
+    lower = image_data_url.strip().lower()
+    if lower.startswith("data:"):
+        semi = image_data_url.find(";")
+        mime = image_data_url[5:semi] if semi > 5 else "unknown"
+        out["mime_type"] = mime
+        out["char_length"] = n
+        out["note"] = "Image sent to the model; payload omitted from this log."
+    else:
+        out["char_length"] = n
+        out["note"] = "Image reference; full payload omitted from this log."
+    return out
+
+
+# Appended to Gemini edit prompts when we must limit drift (accuracy reiteration).
+_EDIT_VISUAL_CONTINUITY = (
+    "\n\nVISUAL CONTINUITY (mandatory):\n"
+    "• Keep the same viewpoint, framing, crop, and composition as the input — "
+    "do not change camera angle, zoom, or layout.\n"
+    "• Preserve background, margins, canvas edges, and negative space; "
+    "only alter regions the fix explicitly requires.\n"
+    "• Match the existing color palette, saturation, contrast, and lighting; "
+    "do not recolor, regrade, or restyle the image for a 'new' look.\n"
+    "• Keep the same illustration style, line weights, fills, and shadows.\n"
+    "• Make the smallest edit that fixes the issue; the result should look "
+    "almost the same as the input except for the corrected details.\n"
+)
+
+
 def edit_image(
     filename: str,
     changes: str,
     image_data_url: Optional[str] = None,
+    trace: Optional[List[Dict[str, Any]]] = None,
+    trace_step_id: Optional[str] = None,
+    trace_title: Optional[str] = None,
+    preserve_visual_identity: bool = False,
 ) -> Tuple[str, bytes, str]:
     """
     Edit an existing image with Gemini. Returns (new_filename, edited_bytes, edited_data_url).
@@ -114,6 +157,7 @@ def edit_image(
     prompt = (
         "Edit the following image based on the requested changes:\n\n"
         f"Changes: {changes}"
+        + (_EDIT_VISUAL_CONTINUITY if preserve_visual_identity else "")
     )
     try:
         response = state.gemini_client.models.generate_content(
@@ -151,6 +195,28 @@ def edit_image(
             pass
 
     logger.info("Edited image stored; filename=%s", new_filename)
+    if trace is not None and trace_step_id:
+        trace.append(
+            {
+                "id": trace_step_id,
+                "title": trace_title or trace_step_id,
+                "provider": "google",
+                "model": "gemini-3-pro-image-preview",
+                "input": {
+                    "filename": filename,
+                    "edit_instruction": changes,
+                    "full_prompt": prompt,
+                    "source_image": _summarize_image_for_trace(
+                        image_data_url, filename
+                    ),
+                },
+                "output": {
+                    "filename": new_filename,
+                    "png_byte_length": len(edited_bytes),
+                    "note": "Edited PNG from Gemini; image shown in the chat.",
+                },
+            }
+        )
     return (new_filename, edited_bytes, edited_image_data_url)
 
 
@@ -178,177 +244,459 @@ def _store_image_bytes(prefix: str, image_bytes: bytes) -> Tuple[str, str]:
     return filename, data_url
 
 
-def get_accurate_image(
-    filename: str,
-    image_data_url: Optional[str] = None,
-) -> Tuple[str, bytes, str, int, int]:
-    """
-    Use GPT-4o vision to detect label/arrow flaws in the image, then apply
-    sequential Gemini correction passes (max 3 flaws per pass, max 5 passes).
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
-    Returns (final_filename, final_bytes, final_data_url, flaws_count, iterations).
-    """
-    MAX_FLAWS_PER_PROMPT = 3
-    MAX_ITERATIONS = 5
+_NO_FLAW_PATTERN = re.compile(
+    r'no[_ ]flaws?[_ ]detected|no errors? found|no inaccuracies|looks? correct|'
+    r'no issues? found|everything (is |looks? )?correct',
+    re.IGNORECASE,
+)
+_NO_FLAW_LINE = re.compile(
+    r'^(no[_ ]flaws?|none found|no errors?|no inaccuracies|looks? (good|correct)|'
+    r'everything (is |looks? )?correct)',
+    re.IGNORECASE,
+)
 
-    if not state.gemini_client:
-        raise ValueError("Gemini client not initialized")
-    if not state.openai_api_key:
-        raise ValueError("OpenAI API key not configured")
 
-    # Ensure we have a data URL to pass to GPT-4 vision. OpenAI cannot fetch
-    # localhost or server-relative URLs, so we must send base64 data only.
-    if not image_data_url or not (image_data_url.strip().lower().startswith("data:")):
-        image_pil = load_image_for_edit(filename, image_data_url or None)
-        buf = BytesIO()
-        image_pil.save(buf, format='PNG')
-        image_data_url = image_bytes_to_data_url(buf.getvalue())
+def _parse_flaw_lines(text: str) -> List[str]:
+    """Parse a numbered/bulleted flaw list from model output into a clean list of strings."""
+    flaws = []
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        clean = re.sub(r'^[\d]+[.):\-]\s*', '', line)
+        clean = re.sub(r'^[-•*]\s*', '', clean).strip()
+        if not clean or _NO_FLAW_LINE.match(clean):
+            continue
+        if re.match(r'^step\s+\d', clean, re.IGNORECASE):
+            continue
+        flaws.append(clean)
+    return flaws
 
-    # --- Step 1: detect flaws with best available vision model (gpt-5.4) ---
-    oa_client = openai_lib.OpenAI(api_key=state.openai_api_key)
 
-    flaw_detection_prompt = (
-        "Examine this diagram image with extreme care.\n\n"
-        "STEP 1 — Inventory: List every visible label (text annotation) and every arrow "
-        "present in the image.\n\n"
-        "STEP 2 — Verify each item against your medical/scientific knowledge:\n"
-        "  • Is each label text anatomically/scientifically correct for the structure it "
-        "annotates?\n"
-        "  • Is each arrow pointing in the correct direction?\n"
-        "  • Is each arrow connected to the correct elements?\n"
-        "  • Are any labels placed on the wrong structure?\n\n"
-        "STEP 3 — Report flaws in a numbered list. Order by severity:\n"
-        "  - List the biggest/most critical flaws FIRST (wrong labels, wrong arrow directions, "
-        "misplaced annotations, major anatomical errors).\n"
-        "  - Then list minor/less significant flaws (typos, slight misplacements, cosmetic issues).\n"
-        "  - Each item must concisely describe ONE flaw: what is wrong and what it should be.\n"
-        "  - If flaws exist: output a single numbered list (1. ... 2. ...) with the most critical "
-        "flaw as #1 and the least critical last. Enumerate all inaccuracies in this order.\n"
-        "  - If you find absolutely no errors after this thorough review: output the single "
-        "token NO_FLAWS_DETECTED and nothing else.\n\n"
-        "Do NOT skip steps. Do NOT be lenient — even subtle anatomical or directional errors "
-        "must be reported. Be as thorough as a human expert reviewing the same image."
-    )
+def _is_no_flaw_response(text: str) -> bool:
+    """Return True if the model response indicates no flaws were found."""
+    stripped = text.strip()
+    if stripped.upper() == 'NO_FLAWS_DETECTED':
+        return True
+    if len(stripped) < 80 and _NO_FLAW_PATTERN.search(stripped):
+        return True
+    return False
 
-    vision_response = oa_client.chat.completions.create(
-        model="gpt-5.4",
+
+def _detect_flaws_via_openai(
+    oa_client: openai_lib.OpenAI,
+    system_prompt: str,
+    user_prompt: str,
+    image_data_url: str,
+    model: str = "gpt-5.4",
+    tag: str = "flaw-detection",
+    trace: Optional[List[Dict[str, Any]]] = None,
+    trace_step_id: str = "openai-vision",
+    trace_title: str = "OpenAI vision",
+) -> str:
+    """Call OpenAI vision model and return raw text response."""
+    response = oa_client.chat.completions.create(
+        model=model,
         temperature=0,
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a rigorous medical illustration quality-control expert. "
-                    "Your sole job is to detect inaccuracies in labels and arrows in "
-                    "scientific diagrams. You are thorough, critical, and never skip "
-                    "verification. When asked to review a diagram you always find "
-                    "every error, no matter how subtle."
-                ),
-            },
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": flaw_detection_prompt},
+                    {"type": "text", "text": user_prompt},
                     {"type": "image_url", "image_url": {"url": image_data_url, "detail": "high"}},
                 ],
             },
         ],
         max_completion_tokens=2000,
     )
-    record_openai_sdk_call(vision_response, "gpt-5.4")
+    record_openai_sdk_call(response, model)
+    text = response.choices[0].message.content.strip()
+    logger.info("--- [%s] INPUT ---\n[system]: %s\n\n[user]: %s", tag, system_prompt, user_prompt)
+    logger.info("--- [%s] OUTPUT ---\n%s", tag, text)
+    if trace is not None:
+        trace.append(
+            {
+                "id": trace_step_id,
+                "title": trace_title,
+                "provider": "openai",
+                "model": model,
+                "input": {
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "image": _summarize_image_for_trace(image_data_url),
+                },
+                "output": {"text": text},
+            }
+        )
+    return text
 
-    flaw_text = vision_response.choices[0].message.content.strip()
-    logger.info(
-        "--- Vision model flaw detection INPUT ---\n"
-        "[system]: You are a rigorous medical illustration quality-control expert. "
-        "Your sole job is to detect inaccuracies in labels and arrows in scientific "
-        "diagrams. You are thorough, critical, and never skip verification. When asked "
-        "to review a diagram you always find every error, no matter how subtle.\n\n"
-        "[user prompt]:\n%s",
-        flaw_detection_prompt,
+
+# ---------------------------------------------------------------------------
+# get_accurate_image  (structural accuracy first, label polish as final pass)
+# ---------------------------------------------------------------------------
+
+def get_accurate_image(
+    filename: str,
+    image_data_url: Optional[str] = None,
+    original_prompt: Optional[str] = None,
+    collect_trace: bool = False,
+) -> Tuple[str, bytes, str, int, int, Optional[List[Dict[str, Any]]]]:
+    """
+    Two-stage accuracy pipeline:
+
+    DETECTION  — Two OpenAI vision calls:
+      Stage A: Structural flaws (anatomy, proportions, topology)
+      Stage B: Label/text flaws (correct names, arrow targets, legibility)
+
+    CORRECTION — Sequential Gemini passes in this order:
+      Pass 1..N : Structural fixes  (OpenAI-generated correction prompts, batched 3 flaws each)
+      Pass N+1  : Label polish      (OpenAI-generated, always the final pass — fixes label
+                                     errors AND cleans up any text distortion from earlier passes)
+
+    OpenAI generates every correction prompt from the detected flaws + original intent,
+    so Gemini always receives a high-quality, targeted instruction rather than a raw flaw dump.
+
+    Returns (final_filename, final_bytes, final_data_url, total_flaws_count, iterations,
+             accuracy_trace or None). When collect_trace is True, the last element is a list of
+             per-call input/output records for the UI; otherwise None.
+    """
+    MAX_FLAWS_PER_PROMPT = 3
+    MAX_STRUCTURAL_ITERATIONS = 4  # structural batches (up to 12 structural flaws addressed)
+
+    if not state.gemini_client:
+        raise ValueError("Gemini client not initialized")
+    if not state.openai_api_key:
+        raise ValueError("OpenAI API key not configured")
+
+    # Ensure we have a base64 data URL — OpenAI vision cannot fetch localhost URLs.
+    if not image_data_url or not image_data_url.strip().lower().startswith("data:"):
+        image_pil = load_image_for_edit(filename, image_data_url or None)
+        buf = BytesIO()
+        image_pil.save(buf, format='PNG')
+        image_data_url = image_bytes_to_data_url(buf.getvalue())
+
+    oa_client = openai_lib.OpenAI(api_key=state.openai_api_key)
+    trace: Optional[List[Dict[str, Any]]] = [] if collect_trace else None
+
+    intent_snippet = (
+        f"\n\nORIGINAL PROMPT (preserve this intent):\n{original_prompt.strip()}"
+        if original_prompt and original_prompt.strip()
+        else ""
     )
-    logger.info("--- Vision model flaw detection OUTPUT ---\n%s", flaw_text)
 
-    # --- Step 2: handle no-flaw case ---
+    # -----------------------------------------------------------------------
+    # Stage A — OpenAI detects structural flaws
+    # -----------------------------------------------------------------------
+    structural_detection_system = (
+        "You are a rigorous medical illustration quality-control expert. "
+        "Your sole job is to detect inaccuracies in the structural design of "
+        "scientific diagrams (anatomy, proportions, spatial relationships, topology). "
+        "You are thorough, critical, and never lenient — report every structural error, "
+        "no matter how subtle."
+    )
+
+    structural_detection_prompt = (
+        "Examine this diagram image with extreme care.\n\n"
+        "STEP 1 — Inventory: Describe the overall structural design — shapes, "
+        "relative positions, proportions, and connections between parts.\n\n"
+        "STEP 2 — Verify the structural design against your medical/scientific knowledge:\n"
+        "  • Are structures anatomically/scientifically correct in shape and form?\n"
+        "  • Are sizes and proportions realistic relative to each other?\n"
+        "  • Are spatial relationships and topology (what connects to what, and where) accurate?\n"
+        "  • Are any components missing, duplicated, distorted, or in the wrong location?\n\n"
+        "STEP 3 — Report structural flaws as a numbered list, most critical first. "
+        "Each item: ONE flaw and what it should be instead.\n"
+        "If there are absolutely no structural errors: output only NO_FLAWS_DETECTED."
+        + (
+            f"\n\nORIGINAL PROMPT — use this to prioritise which structural properties matter most:\n"
+            f"{original_prompt.strip()}"
+            if original_prompt and original_prompt.strip() else ""
+        )
+    )
+
+    structural_flaw_text = _detect_flaws_via_openai(
+        oa_client,
+        structural_detection_system,
+        structural_detection_prompt,
+        image_data_url,
+        tag="structural-detection",
+        trace=trace,
+        trace_step_id="structural-detection",
+        trace_title="Structural flaw detection (OpenAI vision)",
+    )
+
+    # -----------------------------------------------------------------------
+    # Stage B — OpenAI detects label & text flaws
+    # -----------------------------------------------------------------------
+    label_detection_system = (
+        "You are a rigorous medical illustration quality-control expert specialising in "
+        "label and annotation accuracy. You check spelling, anatomical correctness of each "
+        "label name, arrow targets, and visual legibility of all text. "
+        "You are thorough and never lenient — report every label error, however small."
+    )
+
+    label_detection_prompt = (
+        "Examine this diagram image with extreme care, focusing exclusively on labels, "
+        "annotations, callout lines, and arrows.\n\n"
+        "STEP 1 — Inventory: List every label, annotation, and arrow visible.\n\n"
+        "STEP 2 — Verify each label and arrow:\n"
+        "  • Is the label text spelled correctly?\n"
+        "  • Does the label correctly name the structure it refers to?\n"
+        "  • Is the arrow/callout pointing to the correct structure?\n"
+        "  • Is the text clean, undistorted, and fully legible "
+        "(no blurring, warping, overlapping, or garbling)?\n"
+        "  • Are any labels missing, duplicated, or on the wrong structure?\n\n"
+        "STEP 3 — Report label/annotation flaws as a numbered list, most critical first. "
+        "Each item: ONE flaw, what is wrong, and what it should say or point to instead.\n"
+        "If there are absolutely no label errors: output only NO_FLAWS_DETECTED."
+        + (
+            f"\n\nORIGINAL PROMPT for context:\n{original_prompt.strip()}"
+            if original_prompt and original_prompt.strip() else ""
+        )
+    )
+
+    label_flaw_text = _detect_flaws_via_openai(
+        oa_client,
+        label_detection_system,
+        label_detection_prompt,
+        image_data_url,
+        tag="label-detection",
+        trace=trace,
+        trace_step_id="label-detection",
+        trace_title="Label & annotation flaw detection (OpenAI vision)",
+    )
+
+    # -----------------------------------------------------------------------
+    # Parse flaw lists
+    # -----------------------------------------------------------------------
+    structural_flaws: List[str] = (
+        [] if _is_no_flaw_response(structural_flaw_text)
+        else _parse_flaw_lines(structural_flaw_text)
+    )
+    label_flaws: List[str] = (
+        [] if _is_no_flaw_response(label_flaw_text)
+        else _parse_flaw_lines(label_flaw_text)
+    )
+
+    logger.info(
+        "Detected %d structural flaw(s) and %d label flaw(s)",
+        len(structural_flaws), len(label_flaws),
+    )
+
+    total_flaws = len(structural_flaws) + len(label_flaws)
+
     def _return_original_as_accurate() -> Tuple[str, bytes, str, int, int]:
         image_pil = load_image_for_edit(filename, image_data_url)
         buf = BytesIO()
         image_pil.save(buf, format='PNG')
         orig_bytes = buf.getvalue()
         acc_filename, acc_data_url = _store_image_bytes('accurate', orig_bytes)
+        if trace is not None:
+            trace.append(
+                {
+                    "id": "result",
+                    "title": "Final result",
+                    "provider": "app",
+                    "model": "",
+                    "input": {},
+                    "output": {
+                        "message": "No flaws detected; original image stored as accurate result.",
+                        "filename": acc_filename,
+                        "png_byte_length": len(orig_bytes),
+                    },
+                }
+            )
         return (acc_filename, orig_bytes, acc_data_url, 0, 0)
 
-    # Match the exact keyword OR common natural-language "no flaws" phrases
-    _no_flaw_pattern = re.compile(
-        r'no[_ ]flaws?[_ ]detected|no errors? found|no inaccuracies|looks? correct|'
-        r'no issues? found|everything (is |looks? )?correct',
-        re.IGNORECASE,
-    )
-    if flaw_text.upper().strip() == 'NO_FLAWS_DETECTED' or (
-        len(flaw_text) < 80 and _no_flaw_pattern.search(flaw_text)
-    ):
-        logger.info("No flaws detected in the image")
-        return _return_original_as_accurate()
+    if not structural_flaws and not label_flaws:
+        logger.info("No flaws detected — returning original as accurate")
+        fn, bs, du, fc, it = _return_original_as_accurate()
+        return (fn, bs, du, fc, it, trace)
 
-    # --- Step 3: parse the numbered flaw list ---
-    _no_flaw_line = re.compile(
-        r'^(no[_ ]flaws?|none found|no errors?|no inaccuracies|looks? (good|correct)|'
-        r'everything (is |looks? )?correct)',
-        re.IGNORECASE,
-    )
-    flaws = []
-    for line in flaw_text.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-        clean = re.sub(r'^[\d]+[.):\-]\s*', '', line)
-        clean = re.sub(r'^[-•*]\s*', '', clean).strip()
-        # Skip lines that are just "no flaws" variants or step headers
-        if not clean or _no_flaw_line.match(clean):
-            continue
-        if re.match(r'^step\s+\d', clean, re.IGNORECASE):
-            continue
-        flaws.append(clean)
-
-    if not flaws:
-        logger.warning("Could not parse flaws from response; returning original")
-        return _return_original_as_accurate()
-
-    # Cap flaws to what fits in 5 passes of 3 flaws each; ignore the rest
-    max_flaws_used = MAX_ITERATIONS * MAX_FLAWS_PER_PROMPT
-    if len(flaws) > max_flaws_used:
+    # -----------------------------------------------------------------------
+    # OpenAI generates structural correction prompts (batched, 3 flaws each)
+    # -----------------------------------------------------------------------
+    max_structural_flaws = MAX_STRUCTURAL_ITERATIONS * MAX_FLAWS_PER_PROMPT
+    if len(structural_flaws) > max_structural_flaws:
         logger.info(
-            "Detected %d flaws; using first %d (max %d passes × %d flaws), ignoring the rest",
-            len(flaws), max_flaws_used, MAX_ITERATIONS, MAX_FLAWS_PER_PROMPT,
+            "Capping structural flaws from %d to %d",
+            len(structural_flaws), max_structural_flaws,
         )
-        flaws = flaws[:max_flaws_used]
-    else:
-        logger.info("Detected %d flaws", len(flaws))
+        structural_flaws = structural_flaws[:max_structural_flaws]
 
-    # --- Step 4: build grouped correction prompts (max 3 flaws per pass, max 5 passes) ---
-    num_iterations = min(math.ceil(len(flaws) / MAX_FLAWS_PER_PROMPT), MAX_ITERATIONS)
-    correction_prompts = []
-    for i in range(num_iterations):
-        batch = flaws[i * MAX_FLAWS_PER_PROMPT: (i + 1) * MAX_FLAWS_PER_PROMPT]
-        prompt_text = (
-            "Fix the following specific issues in this diagram image:\n"
-            + "\n".join(f"- {f}" for f in batch)
+    num_structural_passes = min(
+        math.ceil(len(structural_flaws) / MAX_FLAWS_PER_PROMPT),
+        MAX_STRUCTURAL_ITERATIONS,
+    )
+
+    correction_prompts: List[str] = []
+
+    structural_prompt_system = (
+        "You are an expert at writing precise image-editing instructions for "
+        "AI image models. Given a list of structural flaws in a scientific diagram "
+        "and the original generation intent, write a single, clear, actionable "
+        "editing instruction that tells the image model exactly what to fix. "
+        "Be specific about what is wrong and what the correct version should look like. "
+        "Do NOT fix labels or text — structural changes only. "
+        "The instruction MUST require preserving the original viewpoint, framing, "
+        "composition, background, color palette, lighting, and illustration style — "
+        "only surgically correct the listed structural issues with minimal visual drift. "
+        "Output the instruction as plain text (no preamble, no bullet points)."
+    )
+
+    for i in range(num_structural_passes):
+        batch = structural_flaws[i * MAX_FLAWS_PER_PROMPT: (i + 1) * MAX_FLAWS_PER_PROMPT]
+        flaw_list = "\n".join(f"- {f}" for f in batch)
+        structural_user_msg = f"Structural flaws to fix:\n{flaw_list}" + intent_snippet
+
+        # Ask OpenAI to turn the raw flaw list into a precise Gemini edit instruction
+        openai_prompt_gen_response = oa_client.chat.completions.create(
+            model="gpt-5.4",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": structural_prompt_system},
+                {"role": "user", "content": structural_user_msg},
+            ],
+            max_completion_tokens=500,
         )
-        correction_prompts.append(prompt_text)
+        record_openai_sdk_call(openai_prompt_gen_response, "gpt-5.4")
+        generated_prompt = openai_prompt_gen_response.choices[0].message.content.strip()
+        logger.info("Generated structural correction prompt %d/%d:\n%s", i + 1, num_structural_passes, generated_prompt)
+        if trace is not None:
+            trace.append(
+                {
+                    "id": f"structural-prompt-gen-{i + 1}",
+                    "title": (
+                        f"OpenAI: structural edit instruction "
+                        f"({i + 1}/{num_structural_passes})"
+                    ),
+                    "provider": "openai",
+                    "model": "gpt-5.4",
+                    "input": {
+                        "system_prompt": structural_prompt_system,
+                        "user_prompt": structural_user_msg,
+                    },
+                    "output": {"generated_edit_instruction": generated_prompt},
+                }
+            )
+        correction_prompts.append(generated_prompt)
 
-    logger.info("Applying %d correction pass(es)", len(correction_prompts))
+    # -----------------------------------------------------------------------
+    # OpenAI generates the final label polish prompt (always the last pass)
+    # This combines all detected label flaws + a standing instruction to clean
+    # up any text distortion introduced by earlier structural edit passes.
+    # -----------------------------------------------------------------------
+    label_flaw_summary = (
+        "\n".join(f"- {f}" for f in label_flaws)
+        if label_flaws
+        else "No specific label errors detected, but re-render all text cleanly."
+    )
 
-    # --- Step 5: sequential Gemini refinement ---
+    label_polish_system = (
+        "You are an expert at writing precise image-editing instructions for "
+        "AI image models. Given a list of label/annotation flaws in a scientific diagram "
+        "and the original generation intent, write a single, clear, actionable "
+        "editing instruction that tells the image model exactly what to fix. "
+        "The instruction must: fix every listed label error, ensure all arrows point "
+        "to the correct structures, and re-render ALL text in a clean sans-serif font "
+        "with no blurring, warping, distortion, or overlapping — even if no specific "
+        "label errors were found, because prior edit passes may have degraded text quality. "
+        "Do NOT change any underlying structures or anatomy, viewpoint, framing, "
+        "background, or overall colors — text and leader lines only unless a label fix "
+        "requires a tiny local adjustment. "
+        "Output the instruction as plain text (no preamble, no bullet points)."
+    )
+    label_polish_user = f"Label/annotation flaws to fix:\n{label_flaw_summary}" + intent_snippet
+
+    label_polish_gen_response = oa_client.chat.completions.create(
+        model="gpt-5.4",
+        temperature=0,
+        messages=[
+            {"role": "system", "content": label_polish_system},
+            {"role": "user", "content": label_polish_user},
+        ],
+        max_completion_tokens=500,
+    )
+    record_openai_sdk_call(label_polish_gen_response, "gpt-5.4")
+    label_polish_prompt = label_polish_gen_response.choices[0].message.content.strip()
+    logger.info("Generated label polish prompt:\n%s", label_polish_prompt)
+    if trace is not None:
+        trace.append(
+            {
+                "id": "label-polish-prompt-gen",
+                "title": "OpenAI: label polish edit instruction",
+                "provider": "openai",
+                "model": "gpt-5.4",
+                "input": {
+                    "system_prompt": label_polish_system,
+                    "user_prompt": label_polish_user,
+                },
+                "output": {"generated_edit_instruction": label_polish_prompt},
+            }
+        )
+    correction_prompts.append(label_polish_prompt)
+
+    logger.info(
+        "Applying %d correction pass(es): %d structural + 1 label polish",
+        len(correction_prompts), num_structural_passes,
+    )
+
+    # -----------------------------------------------------------------------
+    # Sequential Gemini refinement
+    # -----------------------------------------------------------------------
     current_filename = filename
     current_data_url = image_data_url
     current_bytes: bytes = b''
 
     for i, correction_prompt in enumerate(correction_prompts):
+        is_last = (i == len(correction_prompts) - 1)
         logger.info(
-            "Correction pass %d/%d: %s...",
-            i + 1, len(correction_prompts), correction_prompt[:100],
+            "Correction pass %d/%d [%s]: %s...",
+            i + 1, len(correction_prompts),
+            "label-polish" if is_last else "structural",
+            correction_prompt[:120],
         )
+        pass_kind = "label-polish" if is_last else "structural"
         current_filename, current_bytes, current_data_url = edit_image(
-            current_filename, correction_prompt, current_data_url
+            current_filename,
+            correction_prompt,
+            current_data_url,
+            trace=trace,
+            trace_step_id=f"gemini-correction-{i + 1}",
+            trace_title=(
+                f"Gemini edit — {pass_kind} ({i + 1}/{len(correction_prompts)})"
+            ),
+            preserve_visual_identity=True,
         )
 
-    return (current_filename, current_bytes, current_data_url, len(flaws), len(correction_prompts))
+    if trace is not None:
+        trace.append(
+            {
+                "id": "result",
+                "title": "Final result",
+                "provider": "app",
+                "model": "",
+                "input": {},
+                "output": {
+                    "message": "Accuracy pipeline complete.",
+                    "filename": current_filename,
+                    "png_byte_length": len(current_bytes),
+                    "flaws_addressed": total_flaws,
+                    "gemini_passes": len(correction_prompts),
+                },
+            }
+        )
+
+    return (
+        current_filename,
+        current_bytes,
+        current_data_url,
+        total_flaws,
+        len(correction_prompts),
+        trace,
+    )
