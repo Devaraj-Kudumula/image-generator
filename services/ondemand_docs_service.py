@@ -117,7 +117,8 @@ def _build_session_context(session_id: str) -> Optional[Dict[str, Any]]:
 
     collection_name = _collection_name_for_session(session_id)
     collection = mongo_client[config.ONDEMAND_DB_NAME][collection_name]
-    _create_vector_index_if_missing(collection, config.ONDEMAND_INDEX_NAME)
+    # Do NOT create the search index here — the collection may not exist yet.
+    # Index creation is deferred to after the first document insertion.
 
     embedding_model = _get_or_create_embedding_model()
     if embedding_model is None:
@@ -281,6 +282,8 @@ def upload_pdf_for_session(session_id: Any, file_storage: Any) -> Dict[str, Any]
             raise ValueError("No valid text chunks were extracted from the PDF")
 
         collection.insert_many(mongo_docs)
+        # Collection now exists — safe to create the Atlas vector search index.
+        _create_vector_index_if_missing(collection, config.ONDEMAND_INDEX_NAME)
         session_doc_names = _refresh_session_doc_names(context)
         return {
             "doc_name": doc_name,

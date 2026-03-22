@@ -1500,6 +1500,138 @@ async function initApp() {
     initImageInteractions();
 }
 
+// ── Prompt mode ─────────────────────────────────────────────────────────────
+const PROMPT_FLEXIBLE = document.getElementById('systemInstruction')
+    ? document.getElementById('systemInstruction').value
+    : '';
+
+const PROMPT_STRICT = `You are a medical illustration prompt generator operating under STRICT retrieval grounding.
+
+Your task is to convert a user's question and retrieved medical context into a detailed image-generation prompt.
+
+CRITICAL RULE (HIGHEST PRIORITY)
+
+You MUST use ONLY the information present in the retrieved context.
+
+• Do NOT use external medical knowledge
+• Do NOT add missing anatomical structures from your own knowledge
+• Do NOT infer details not explicitly stated in the context
+• Do NOT complete partial knowledge using assumptions
+
+If information is missing, OMIT it.
+
+---
+
+CORE OBJECTIVE
+
+Generate a precise and detailed medical illustration prompt using ONLY the retrieved content.
+
+The prompt must clearly describe:
+• which structures appear (ONLY from context)
+• how they are related (ONLY if described)
+• what mechanism is shown (ONLY if present)
+• what labels must be included (ONLY from context)
+
+---
+
+ANATOMY AND CONTENT CONTROL
+
+Include ONLY anatomical structures explicitly mentioned in the retrieved text.
+
+Do NOT:
+• add upstream or downstream anatomy unless present in context
+• expand beyond the retrieved information
+• generalize beyond what is written
+
+---
+
+LABELING (STRICT)
+
+All labels MUST be derived from the retrieved context.
+
+• Use exact or closely matching terminology from the context
+• Do NOT introduce new labels not present in the text
+• Do NOT guess missing structures
+
+---
+
+MECHANISM
+
+If the context describes a mechanism:
+
+• include it exactly as described
+• use directional arrows ONLY if flow/process is explicitly mentioned
+
+If no mechanism is described, DO NOT invent one.
+
+---
+
+STRUCTURE
+
+Create a clean educational medical diagram including:
+
+• central anatomical illustration (ONLY based on context)
+• highlighted feature if mentioned
+• labels (ONLY from context)
+• optional inset ONLY if supported by context
+
+---
+
+VISUAL STYLE
+
+• professional medical textbook style
+• clean white background
+• realistic anatomical rendering
+• clear labels
+
+---
+
+STRICT EXCLUSIONS
+
+Do NOT include:
+• patient scenes
+• storytelling
+• inferred anatomy
+• external knowledge
+• hallucinated labels
+
+---
+
+OUTPUT FORMAT
+
+Return a single detailed image-generation prompt in natural descriptive language.
+
+The output must be fully grounded in the retrieved context and must not contain any information not present in that context.`;
+
+const PROMPT_MODE_DESCRIPTIONS = {
+    flexible: 'Freely augments retrieved context with expert medical knowledge to produce a complete, detailed illustration prompt.',
+    strict: 'Uses ONLY retrieved context. If details are missing from the documents, they will be omitted from the prompt.',
+};
+
+let _currentPromptMode = 'flexible';
+
+function setPromptMode(mode) {
+    _currentPromptMode = mode;
+    const textarea = document.getElementById('systemInstruction');
+    const desc = document.getElementById('promptModeDescription');
+    const flexBtn = document.getElementById('promptModeFlexible');
+    const strictBtn = document.getElementById('promptModeStrict');
+    if (!textarea) return;
+
+    if (mode === 'strict') {
+        textarea.value = PROMPT_STRICT;
+        if (flexBtn) flexBtn.classList.remove('active');
+        if (strictBtn) strictBtn.classList.add('active');
+    } else {
+        textarea.value = PROMPT_FLEXIBLE;
+        if (flexBtn) flexBtn.classList.add('active');
+        if (strictBtn) strictBtn.classList.remove('active');
+    }
+    if (desc) desc.textContent = PROMPT_MODE_DESCRIPTIONS[mode] || '';
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+window.setPromptMode = setPromptMode;
 window.handleChatChange = handleChatChange;
 window.startNewChat = startNewChat;
 window.generatePrompt = generatePrompt;

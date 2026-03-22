@@ -293,6 +293,55 @@ html.theme-dark .theme-toggle::after {
     border-color: var(--border-hover);
 }
 
+/* Prompt mode toggle */
+.prompt-mode-toggle {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.prompt-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border-input);
+    background: var(--bg-muted);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.prompt-mode-btn:hover {
+    background: var(--bg-muted-hover);
+    color: var(--text-primary);
+}
+
+.prompt-mode-btn.active {
+    background: var(--accent-muted-bg);
+    color: var(--accent);
+    border-color: var(--accent-muted-border);
+}
+
+.prompt-mode-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--accent);
+    opacity: 0.8;
+}
+
+.prompt-mode-desc {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+    line-height: 1.45;
+}
+/* End prompt mode toggle */
+
 .section-title {
     color: var(--text-primary);
     font-size: 0.9rem;

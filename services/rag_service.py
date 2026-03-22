@@ -63,6 +63,40 @@ def _similarity_search(
     ]
 
 
+def _similarity_search_by_doc_name(
+    query: str,
+    k: int,
+    doc_name: str,
+    vectorstore: Any,
+) -> List[Document]:
+    """Try known doc_name metadata paths to avoid filter misses across schemas."""
+    if not doc_name:
+        return []
+
+    filter_paths = (
+        "metadata.doc_name",
+        "metadata.metadata.doc_name",
+        "doc_name",
+    )
+
+    for path in filter_paths:
+        filtered_docs = _similarity_search(
+            query=query,
+            k=k,
+            pre_filter={path: {"$eq": doc_name}},
+            vectorstore=vectorstore,
+        )
+        if filtered_docs:
+            logger.info(
+                "Filtered retrieval matched path '%s' for doc_name='%s'",
+                path,
+                doc_name,
+            )
+            return filtered_docs
+
+    return []
+
+
 def extract_doc_name_from_doc(doc: Document) -> Optional[str]:
     metadata = getattr(doc, "metadata", {}) or {}
     if isinstance(metadata, dict):
@@ -459,13 +493,38 @@ def build_structured_retrieval_query(user_question: str) -> str:
     if state.llm is None:
         return base_question
 
-    extract_system = """Extract:
-        1. Primary medical condition
-        2. Mechanism keywords
-        3. Clinical keywords
+    extract_system = """You are a medical retrieval query generator.
 
-        Return short structured text only.
-    """
+Your task is to convert the user’s medical question into a single, highly optimized search query for retrieving relevant medical textbook content.
+
+The query must be dense, specific, and medically rich.
+
+Instructions:
+
+• Identify the core medical concept (anatomy, disease, pathology, physiology, mechanism)
+• Expand with related anatomical structures, systems, and pathways
+• Include mechanism-related terms (flow, obstruction, degeneration, signaling, etc.)
+• Include synonyms or closely related medical terminology
+• Remove conversational phrases (e.g., "explain", "what is")
+
+Focus on retrieving:
+• anatomical relationships
+• structural hierarchy
+• underlying mechanisms
+• system-level context
+
+Output Rules:
+
+• Return ONE single-line query
+• Do NOT explain anything
+• Do NOT return bullets or JSON
+
+Example:
+
+User: anatomy of subclavian steal syndrome
+
+Output:
+subclavian steal syndrome anatomy vertebral artery subclavian artery stenosis basilar artery posterior circulation retrograde blood flow vascular pathway"""
 
     try:
         logger.info("Extracting structured retrieval query...")
@@ -479,7 +538,7 @@ def build_structured_retrieval_query(user_question: str) -> str:
         if structured_query:
             logger.info(
                 "Structured retrieval query: %s...",
-                structured_query[:150],
+                structured_query,
             )
             return structured_query
         logger.warning(
@@ -565,10 +624,10 @@ def retrieve_docs_with_timeout(
                     )
                     if target_vectorstore is None:
                         continue
-                    filtered_docs = _similarity_search(
+                    filtered_docs = _similarity_search_by_doc_name(
                         query=query,
                         k=per_doc_k,
-                        pre_filter={"metadata.doc_name": {"$eq": doc_name}},
+                        doc_name=doc_name,
                         vectorstore=target_vectorstore,
                     )
                     if (
@@ -602,10 +661,10 @@ def retrieve_docs_with_timeout(
             if selected_base and state.vectorstore is not None:
                 per_doc_k = max(1, group_k // len(selected_base))
                 for doc_name in selected_base:
-                    filtered_docs = _similarity_search(
+                    filtered_docs = _similarity_search_by_doc_name(
                         query=query,
                         k=per_doc_k,
-                        pre_filter={"metadata.doc_name": {"$eq": doc_name}},
+                        doc_name=doc_name,
                         vectorstore=state.vectorstore,
                     )
                     logger.info(
@@ -619,10 +678,10 @@ def retrieve_docs_with_timeout(
             if selected_session and session_vectorstore is not None:
                 per_doc_k = max(1, group_k // len(selected_session))
                 for doc_name in selected_session:
-                    filtered_docs = _similarity_search(
+                    filtered_docs = _similarity_search_by_doc_name(
                         query=query,
                         k=per_doc_k,
-                        pre_filter={"metadata.doc_name": {"$eq": doc_name}},
+                        doc_name=doc_name,
                         vectorstore=session_vectorstore,
                     )
                     logger.info(
