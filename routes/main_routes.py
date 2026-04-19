@@ -18,6 +18,16 @@ def register(app):
         logger.info("Serving index.html")
         return send_from_directory('.', 'index.html')
 
+    @app.route('/docs-chat')
+    def docs_chat():
+        logger.info("Serving docs_chat.html")
+        return send_from_directory('.', 'docs_chat.html')
+
+    @app.route('/upload-edit')
+    def upload_edit():
+        logger.info("Serving upload_edit.html")
+        return send_from_directory('.', 'upload_edit.html')
+
     @app.route('/health', methods=['GET'])
     def health():
         """Health check endpoint for monitoring"""

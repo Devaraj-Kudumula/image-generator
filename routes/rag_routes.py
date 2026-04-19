@@ -14,6 +14,7 @@ from app_state import state
 from db import fetch_distinct_doc_names
 from services import rag_service
 from services import ondemand_docs_service
+from services import prompt_generation_helpers
 from services.llm_metrics_service import record_langchain_openai_call
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,7 @@ def register(app):
         request_start = time.time()
         logger.info("[/re-run-retrieval] Request received")
         try:
-            data = request.get_json()
+            data = request.get_json() or {}
             session_id = rag_service.extract_session_id(data)
             search_query = (data or {}).get('search_query', '').strip()
             raw_selected_doc_names = (data or {}).get('selected_doc_names')
@@ -190,8 +191,14 @@ def register(app):
                 }), 400
             if run_doc_retrieval and not state.retriever:
                 return jsonify({'error': 'RAG retriever not available'}), 503
+            exam_focus = prompt_generation_helpers.normalize_exam_focus(
+                data.get('exam_focus')
+            )
+            teaching_notes = str(data.get('exam_teaching_notes') or '').strip()
             retrieval_query = rag_service.build_structured_retrieval_query(
-                search_query
+                search_query,
+                exam_focus=exam_focus,
+                teaching_notes=teaching_notes if teaching_notes else None,
             )
             logger.info(
                 "Re-running retrieval with structured query: %s...",
@@ -276,14 +283,19 @@ def register(app):
         logger.info("[/generate-prompt] Request received")
 
         try:
-            data = request.get_json()
+            data = request.get_json() or {}
             logger.info(
                 "Request data keys: %s",
                 list(data.keys()) if data else 'None',
             )
             system_instruction = data.get('system_instruction', '')
-            user_question = data.get(
-                'user_question', 'A serene landscape at sunset'
+            user_question = str(data.get('user_question') or '').strip()
+            exam_focus = prompt_generation_helpers.normalize_exam_focus(
+                data.get('exam_focus')
+            )
+            teaching_notes = str(data.get('exam_teaching_notes') or '').strip()
+            prompt_mode = prompt_generation_helpers.normalize_prompt_mode(
+                data.get('prompt_mode')
             )
             session_id = rag_service.extract_session_id(data)
             raw_selected_doc_names = (data or {}).get('selected_doc_names')
@@ -319,9 +331,17 @@ def register(app):
                     'error': 'OpenAI API key not configured. Please set OPENAI_API_KEY environment variable.'
                 }), 500
 
+            if not user_question:
+                logger.warning("Request missing user_question")
+                return jsonify({
+                    'error': 'user_question is required'
+                }), 400
+
             logger.info("Question: %s...", user_question[:100])
             structured_user_query = rag_service.build_structured_retrieval_query(
-                user_question
+                user_question,
+                exam_focus=exam_focus,
+                teaching_notes=teaching_notes if teaching_notes else None,
             )
 
             override_search_query = (data or {}).get('search_query')
@@ -420,16 +440,18 @@ def register(app):
                             logger.info(
                                 "No documents retrieved; switching to direct prompt generation"
                             )
+                            direct_user = (
+                                prompt_generation_helpers.build_direct_prompt_user_message(
+                                    structured_user_query,
+                                    user_question,
+                                    exam_focus,
+                                    teaching_notes if teaching_notes else None,
+                                    prompt_mode,
+                                )
+                            )
                             response = _invoke_openai_and_track([
                                 {"role": "system", "content": system_instruction},
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
-                                        f"Structured Clinical Query: {structured_user_query}\n"
-                                        f"Original User Question: {user_question}"
-                                    ),
-                                },
+                                {"role": "user", "content": direct_user},
                             ])
                             generated_prompt = response.content.strip()
                             return jsonify({
@@ -477,18 +499,16 @@ def register(app):
                         len(context),
                     )
 
-                    construction_prompt = f"""
-                    Retrieved High-Yield Medical Context:
-                    {context}
-
-                    Structured Clinical Query:
-                    {structured_user_query}
-
-                    Original User Question:
-                    {user_question}
-
-                    Return a complete structured and detailed image generation prompt following the system instruction guidelines.
-                    """
+                    construction_prompt = (
+                        prompt_generation_helpers.build_rag_construction_user_message(
+                            context,
+                            structured_user_query,
+                            user_question,
+                            exam_focus,
+                            teaching_notes if teaching_notes else None,
+                            prompt_mode,
+                        )
+                    )
 
                     logger.info("Generating prompt with RAG context...")
                     response = _invoke_openai_and_track([
@@ -538,16 +558,18 @@ def register(app):
                         e,
                     )
                     logger.warning(traceback.format_exc())
+                    direct_user = (
+                        prompt_generation_helpers.build_direct_prompt_user_message(
+                            structured_user_query,
+                            user_question,
+                            exam_focus,
+                            teaching_notes if teaching_notes else None,
+                            prompt_mode,
+                        )
+                    )
                     response = _invoke_openai_and_track([
                         {"role": "system", "content": system_instruction},
-                        {
-                            "role": "user",
-                            "content": (
-                                "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
-                                f"Structured Clinical Query: {structured_user_query}\n"
-                                f"Original User Question: {user_question}"
-                            ),
-                        },
+                        {"role": "user", "content": direct_user},
                     ])
                     generated_prompt = response.content.strip()
                     logger.info(
@@ -558,16 +580,18 @@ def register(app):
                 logger.info(
                     "NO RAG mode selected; generating prompt from structured query and original user question"
                 )
+                direct_user = (
+                    prompt_generation_helpers.build_direct_prompt_user_message(
+                        structured_user_query,
+                        user_question,
+                        exam_focus,
+                        teaching_notes if teaching_notes else None,
+                        prompt_mode,
+                    )
+                )
                 response = _invoke_openai_and_track([
                     {"role": "system", "content": system_instruction},
-                    {
-                        "role": "user",
-                        "content": (
-                            "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
-                            f"Structured Clinical Query: {structured_user_query}\n"
-                            f"Original User Question: {user_question}"
-                        ),
-                    },
+                    {"role": "user", "content": direct_user},
                 ])
                 generated_prompt = response.content.strip()
                 logger.info(
@@ -578,16 +602,18 @@ def register(app):
                 logger.warning(
                     "RAG system not available, using direct generation without retrieval"
                 )
+                direct_user = (
+                    prompt_generation_helpers.build_direct_prompt_user_message(
+                        structured_user_query,
+                        user_question,
+                        exam_focus,
+                        teaching_notes if teaching_notes else None,
+                        prompt_mode,
+                    )
+                )
                 response = _invoke_openai_and_track([
                     {"role": "system", "content": system_instruction},
-                    {
-                        "role": "user",
-                        "content": (
-                            "Create a detailed medical illustration prompt using this structured clinical query and the original request.\n\n"
-                            f"Structured Clinical Query: {structured_user_query}\n"
-                            f"Original User Question: {user_question}"
-                        ),
-                    },
+                    {"role": "user", "content": direct_user},
                 ])
                 generated_prompt = response.content.strip()
                 logger.info(

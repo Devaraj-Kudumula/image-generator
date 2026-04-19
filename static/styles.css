@@ -178,6 +178,43 @@ h1 {
     max-width: 640px;
 }
 
+.app-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: -8px 0 24px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-muted);
+    border: 1px solid var(--border-light);
+}
+
+.app-nav-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.app-nav-link:hover {
+    color: var(--text-primary);
+    background: var(--bg-section);
+    border-color: var(--border);
+}
+
+.app-nav-link[aria-current="page"] {
+    color: var(--accent-strong);
+    background: var(--bg-section);
+    border-color: rgba(99, 102, 241, 0.35);
+}
+
 .header-meta {
     display: flex;
     flex-direction: column;
@@ -1108,6 +1145,51 @@ button:disabled {
 
 .field-row button {
     margin-top: 0;
+}
+
+.exam-controls {
+    margin: 12px 0 16px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-muted);
+}
+
+.exam-controls-label {
+    margin-bottom: 8px;
+}
+
+.exam-focus-select {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font: inherit;
+    border: 1px solid var(--border-input);
+    background: var(--bg-input);
+    color: var(--text-primary);
+}
+
+.exam-teaching-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text-muted-3);
+}
+
+.exam-teaching-notes {
+    width: 100%;
+    min-height: 72px;
+    resize: vertical;
+    padding: 10px;
+    border-radius: 6px;
+    font: inherit;
+    border: 1px solid var(--border-input);
+    background: var(--bg-input);
+    color: var(--text-primary);
 }
 
 .field-label {

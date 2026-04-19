@@ -484,11 +484,31 @@ def build_combined_context(
     )
 
 
-def build_structured_retrieval_query(user_question: str) -> str:
+def build_structured_retrieval_query(
+    user_question: str,
+    exam_focus: str = "general",
+    teaching_notes: Optional[str] = None,
+) -> str:
     """Build a concise clinical retrieval query from the raw user question."""
     base_question = (user_question or "").strip()
     if not base_question:
         return ""
+
+    notes = (teaching_notes or "").strip()
+    if notes:
+        base_question = (
+            f"{base_question}\n\nLearner emphasis / notes for retrieval: {notes}"
+        )
+    if exam_focus == "step1":
+        base_question += (
+            "\n\n[Bias: USMLE Step 1 — mechanisms, associations, pathways, "
+            "anatomy, histology, biochemistry, physiology, high-yield discriminators.]"
+        )
+    elif exam_focus == "step2":
+        base_question += (
+            "\n\n[Bias: USMLE Step 2 CK — presentation, diagnosis, management, "
+            "clinical findings, branch points, discriminating features.]"
+        )
 
     if state.llm is None:
         return base_question
@@ -506,6 +526,7 @@ Instructions:
 • Include mechanism-related terms (flow, obstruction, degeneration, signaling, etc.)
 • Include synonyms or closely related medical terminology
 • Remove conversational phrases (e.g., "explain", "what is")
+• If the user message includes a [Bias: USMLE ...] line, respect that exam focus when choosing expansion terms
 
 Focus on retrieving:
 • anatomical relationships

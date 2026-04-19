@@ -52,6 +52,18 @@ function withActiveChatId(payload) {
     };
 }
 
+const EXAM_FOCUS_STORAGE_KEY = 'image_gen_exam_focus';
+
+function getExamFocus() {
+    const el = document.getElementById('examFocus');
+    return el && el.value ? el.value : 'general';
+}
+
+function getExamTeachingNotes() {
+    const el = document.getElementById('examTeachingNotes');
+    return el ? String(el.value || '').trim() : '';
+}
+
 async function resetServerSession(sessionId) {
     if (!sessionId) return;
     try {
@@ -954,7 +966,10 @@ async function generatePrompt() {
                     system_instruction: systemInstruction,
                     user_question: userQuestion,
                     selected_doc_names: selectedDocNames,
-                    disable_rag: disableRag
+                    disable_rag: disableRag,
+                    prompt_mode: _currentPromptMode,
+                    exam_focus: getExamFocus(),
+                    exam_teaching_notes: getExamTeachingNotes()
                 })
             })
         });
@@ -997,7 +1012,9 @@ function updateRagDetails(searchQuery, chunks, fromRun) {
 
     if (!hasRag) {
         noData.classList.remove('hidden');
-        noData.textContent = fromRun ? 'No chunks for this run (RAG was not used).' : 'Generate a prompt above to see retrieved context when RAG is used.';
+        noData.textContent = fromRun
+            ? 'No chunks for this run (RAG was not used).'
+            : 'Retrieved context appears here after you run prompt generation on Studio or ask questions on Doc chat.';
         searchBlock.classList.remove('hidden');
         chunksBlock.classList.add('hidden');
         if (badge) badge.textContent = 'No RAG used';
@@ -1079,7 +1096,9 @@ async function reRunRetrieval() {
             body: JSON.stringify({
                 ...withActiveChatId({
                     search_query: searchQuery,
-                    selected_doc_names: selectedDocNames
+                    selected_doc_names: selectedDocNames,
+                    exam_focus: getExamFocus(),
+                    exam_teaching_notes: getExamTeachingNotes()
                 })
             })
         });
@@ -1145,7 +1164,10 @@ async function reSynthesizePrompt() {
                     user_question: userQuestion,
                     search_query: searchQuery,
                     chunks: chunks,
-                    selected_doc_names: selectedDocNames
+                    selected_doc_names: selectedDocNames,
+                    prompt_mode: _currentPromptMode,
+                    exam_focus: getExamFocus(),
+                    exam_teaching_notes: getExamTeachingNotes()
                 })
             })
         });
@@ -1285,9 +1307,9 @@ async function uploadAndEditImage() {
         progressEl.textContent = 'In progress: creating image from uploaded input...';
         progressEl.classList.add('active');
     }
-    loading.classList.add('active');
-    errorDiv.classList.remove('active');
-    successDiv.classList.remove('active');
+    if (loading) loading.classList.add('active');
+    if (errorDiv) errorDiv.classList.remove('active');
+    if (successDiv) successDiv.classList.remove('active');
 
     try {
         const imageDataUrl = await readFileAsDataUrl(file);
@@ -1346,7 +1368,7 @@ async function uploadAndEditImage() {
             progressEl.classList.remove('active');
             progressEl.textContent = '';
         }
-        loading.classList.remove('active');
+        if (loading) loading.classList.remove('active');
     }
 }
 
@@ -1568,6 +1590,17 @@ async function initApp() {
     updateRetrievalActionsState();
     renderDocChatHistory();
     initImageInteractions();
+
+    const examFocusEl = document.getElementById('examFocus');
+    if (examFocusEl) {
+        const savedExam = localStorage.getItem(EXAM_FOCUS_STORAGE_KEY);
+        if (savedExam && ['general', 'step1', 'step2'].indexOf(savedExam) !== -1) {
+            examFocusEl.value = savedExam;
+        }
+        examFocusEl.addEventListener('change', function() {
+            localStorage.setItem(EXAM_FOCUS_STORAGE_KEY, this.value);
+        });
+    }
 }
 
 // ── Prompt mode ─────────────────────────────────────────────────────────────
@@ -1589,6 +1622,8 @@ You MUST use ONLY the information present in the retrieved context.
 • Do NOT complete partial knowledge using assumptions
 
 If information is missing, OMIT it.
+
+When learner notes are supplied alongside retrieved context, you may use them ONLY to decide emphasis, layout, and what visually dominates the figure. All factual anatomical, pathophysiological, and clinical content must still come from the retrieved context.
 
 ---
 
@@ -1674,8 +1709,8 @@ Return a single detailed image-generation prompt in natural descriptive language
 The output must be fully grounded in the retrieved context and must not contain any information not present in that context.`;
 
 const PROMPT_MODE_DESCRIPTIONS = {
-    flexible: 'Freely augments retrieved context with expert medical knowledge to produce a complete, detailed illustration prompt.',
-    strict: 'Uses ONLY retrieved context. If details are missing from the documents, they will be omitted from the prompt.',
+    flexible: 'Sends prompt_mode=flexible: augments retrieved context with expert medical knowledge; user message requires the final image prompt to open with the primary teaching point and visual dominance.',
+    strict: 'Sends prompt_mode=strict: the server requires grounding in retrieved documents; missing facts are omitted rather than invented.',
 };
 
 let _currentPromptMode = 'flexible';

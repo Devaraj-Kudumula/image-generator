@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doc chat — AI Medical Image Generator</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark') document.documentElement.classList.add('theme-dark');
+        })();
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header class="app-header">
+            <div class="title-group">
+                <div class="title-row">
+                    <div class="app-logo" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="4" width="16" height="16" rx="2.5"/>
+                            <path d="M12 7v10M7 12h10"/>
+                        </svg>
+                    </div>
+                    <h1>Doc chat</h1>
+                </div>
+                <p class="subtitle">
+                    Ask questions grounded in your selected PDFs and sources. Configure retrieval here; this flow is separate from image prompt generation on Studio.
+                </p>
+            </div>
+            <div class="header-meta">
+                <div class="theme-toggle-wrap">
+                    <span class="theme-toggle-label" id="themeLabel">Dark mode</span>
+                    <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Toggle dark mode" title="Switch between light and dark theme"></button>
+                </div>
+                <span class="badge">RAG &amp; USMLE sources</span>
+            </div>
+        </header>
+
+        <nav class="app-nav" aria-label="Main pages">
+            <a href="/" class="app-nav-link">Studio</a>
+            <a href="/docs-chat" class="app-nav-link" aria-current="page">Doc chat</a>
+            <a href="/upload-edit" class="app-nav-link">Upload &amp; edit</a>
+        </nav>
+
+        <main class="app-main">
+            <div class="layout">
+                <div class="column">
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Document sources</div>
+                            <span>Select PDFs, web retrieval, or session uploads</span>
+                        </div>
+                        <div class="helper-text">Use &ldquo;Upload PDF&rdquo; for session-only documents. Chunks from your questions appear under Retrieved content.</div>
+
+                        <div class="rag-details-wrapper" id="ragDetailsWrapper">
+                            <details class="rag-details" id="ragSettingsDetails" open>
+                                <summary class="rag-details-summary">
+                                    <span class="rag-details-title">Retrieval settings</span>
+                                </summary>
+                                <div class="rag-details-inner">
+                                    <div class="rag-search-query-block" id="ragSearchQueryBlock">
+                                        <div class="rag-label">Already present docs</div>
+                                        <select id="ragDocNameSelect" class="rag-doc-select" multiple size="6"></select>
+                                        <div class="rag-doc-help">Select one or more base sources. Add Web Retrieval for web context, or choose NO RAG to disable retrieval.</div>
+
+                                        <div class="rag-label">Upload docs on demand (session only)</div>
+                                        <div class="rag-upload-row">
+                                            <input id="ragUploadFileInput" class="upload-file-input" type="file" accept="application/pdf" />
+                                            <button type="button" class="rag-btn rag-btn-secondary" id="uploadRagDocBtn" onclick="uploadRagDocument()">Upload PDF</button>
+                                        </div>
+                                        <div class="rag-upload-status" id="ragUploadStatus"></div>
+
+                                        <div class="rag-label">Uploaded docs for this session</div>
+                                        <select id="ragSessionDocNameSelect" class="rag-doc-select" multiple size="6"></select>
+                                        <div class="rag-doc-help">Only available in this browser session. Uploaded docs are deleted from MongoDB when session resets or page reloads.</div>
+
+                                        <div class="rag-retrieval-error hidden" id="ragRetrievalError"></div>
+                                    </div>
+                                </div>
+                            </details>
+                            <details class="rag-details" id="ragDetails">
+                                <summary class="rag-details-summary">
+                                    <span class="rag-details-title">Retrieved content</span>
+                                    <span class="rag-details-badge" id="ragDetailsBadge"></span>
+                                </summary>
+                                <div class="rag-details-inner">
+                                    <div class="rag-chunks-block" id="ragChunksBlock">
+                                        <div class="rag-label">Retrieved chunks (<span id="ragChunksCount">0</span>)</div>
+                                        <div class="rag-chunks-list" id="ragChunksList"></div>
+                                    </div>
+                                    <p class="rag-no-data" id="ragNoData">Ask a question below to see retrieved context from your selected sources.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Chat with selected docs</div>
+                            <span>Questions grounded in your sources</span>
+                        </div>
+                        <div class="helper-text">Separate from Studio prompt generation. Requires at least one real source (not NO RAG).</div>
+                        <div id="docChatMessages" class="doc-chat-messages"></div>
+                        <textarea id="docChatQuestion" rows="3" placeholder="Ask a question about the selected docs..."></textarea>
+                        <div class="rag-retrieval-actions">
+                            <button type="button" class="rag-btn rag-btn-primary" id="askDocsBtn" onclick="askDocsQuestion()">Ask docs</button>
+                            <button type="button" class="rag-btn rag-btn-secondary" id="clearDocChatBtn" onclick="clearDocChatHistory()">Clear chat</button>
+                        </div>
+                        <div class="rag-retrieval-loading hidden" id="docChatLoading">
+                            <span class="rag-spinner"></span>
+                            <span>Generating answer...</span>
+                        </div>
+                        <div class="rag-retrieval-error hidden" id="docChatError"></div>
+                    </div>
+                </div>
+
+                <div class="column">
+                    <div class="section llm-metrics-compact">
+                        <div class="llm-metrics-header-row">
+                            <div class="section-title">LLM Metrics</div>
+                            <div class="llm-total-calls-chip">
+                                Calls: <span id="totalCallsValue">0</span>
+                            </div>
+                        </div>
+
+                        <details class="llm-expand-item" id="tokensMetricsDetails">
+                            <summary class="llm-expand-summary">
+                                <span class="llm-expand-label">Tokens</span>
+                                <span class="llm-expand-total" id="totalTokensValue">0</span>
+                            </summary>
+                            <div class="llm-expand-body">
+                                <div class="llm-breakdown-row">
+                                    <span>GPT</span>
+                                    <span id="gptTokensValue">0</span>
+                                </div>
+                                <div class="llm-breakdown-row">
+                                    <span>Gemini</span>
+                                    <span id="geminiTokensValue">0</span>
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="llm-metrics-note" id="llmMetricsNote">Token counts for this session.</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <script src="/static/app.js"></script>
+</body>
+</html>

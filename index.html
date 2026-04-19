@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Prompt to Image Generator</title>
+    <title>Studio — AI Medical Image Generator</title>
     <link rel="stylesheet" href="/static/styles.css">
         <script>
         (function() {
@@ -39,6 +39,12 @@
             </div>
         </header>
 
+        <nav class="app-nav" aria-label="Main pages">
+            <a href="/" class="app-nav-link" aria-current="page">Studio</a>
+            <a href="/docs-chat" class="app-nav-link">Doc chat</a>
+            <a href="/upload-edit" class="app-nav-link">Upload &amp; edit</a>
+        </nav>
+
         <main class="app-main">
             <div class="layout">
                 <!-- Primary column: authoring + refinement -->
@@ -58,11 +64,38 @@
                             </button>
                         </div>
                         <p id="promptModeDescription" class="prompt-mode-desc">Freely augments retrieved context with expert medical knowledge to produce a complete, detailed illustration prompt.</p>
-                        <textarea id="systemInstruction" rows="8" placeholder="Enter system instruction here...">You are an expert medical illustration prompt architect.
+                        <div class="exam-controls">
+                            <div class="field-label exam-controls-label">
+                                <div class="section-title">Exam focus</div>
+                                <span>Shapes retrieval &amp; figure emphasis (USMLE)</span>
+                            </div>
+                            <select id="examFocus" class="exam-focus-select" aria-label="Exam focus">
+                                <option value="general">General</option>
+                                <option value="step1" selected>USMLE Step 1</option>
+                                <option value="step2">USMLE Step 2 CK</option>
+                            </select>
+                            <label class="exam-teaching-label" for="examTeachingNotes">Learner notes (optional)</label>
+                            <textarea id="examTeachingNotes" class="exam-teaching-notes" rows="3" placeholder="Primary teaching point; what must dominate the figure; optional compare A vs B…"></textarea>
+                        </div>
+                        <textarea id="systemInstruction" rows="8" placeholder="Enter system instruction here...">You are an expert medical illustration prompt architect for USMLE-oriented study.
 
-Your task is to convert a user’s medical question and retrieved medical context into a highly detailed, structured image-generation prompt for a professional medical textbook illustration.
+Your task is to convert a user’s medical question, optional learner notes, and retrieved medical context into a highly detailed, structured image-generation prompt for a professional medical textbook–style illustration.
 
-The goal is to generate an image that is anatomically accurate, clearly labeled, and focused on explaining structure and mechanism.
+The goal is an image that is anatomically accurate when anatomy is involved, clearly labeled, and optimized for a single primary teaching point that matches the selected exam focus (general, USMLE Step 1, or USMLE Step 2 CK).
+
+---
+
+EXAM INTENTION (CRITICAL)
+
+Align figure type and emphasis with the exam focus supplied in the user message wrapper:
+
+• USMLE Step 1: prioritize mechanisms, pathways, associations, discriminators, and structures commonly tested; favor schematics, pathways, comparisons, and maps that make the tested relationship obvious.
+
+• USMLE Step 2 CK: prioritize classic presentations, key findings, branch points between diagnoses, next diagnostic or management steps when relevant, and discriminating features; favor clinical-schematic or algorithm-style layouts when they clarify reasoning.
+
+• General: standard high-quality medical education illustration without forcing USMLE-specific framing unless the topic warrants it.
+
+If learner notes specify what must visually dominate, follow them precisely in the generated image prompt.
 
 ---
 
@@ -71,16 +104,22 @@ CORE REQUIREMENT
 The output must NOT be generic.
 
 The prompt must explicitly define:
-• which anatomical structures must be shown
+• which structures, entities, or stages must be shown
 • how they are connected
-• where the key feature or pathology is located
+• where the key feature, lesion, decision point, or pathology sits
 • what labels must appear in the image
+
+---
+
+OPENING OF THE FINAL IMAGE PROMPT (FOR THE IMAGE MODEL)
+
+The detailed image-generation prompt you produce must begin with 2–3 sentences that state (1) the single primary teaching point and (2) what must dominate the canvas (largest, center, or most salient). Secondary elements must be clearly subordinate. Only after that, describe composition, labels, arrows, and style.
 
 ---
 
 ANATOMICAL COMPLETENESS
 
-Include all structures required to understand the concept.
+When anatomy applies, include all structures required to understand the concept.
 
 Do NOT omit upstream or downstream structures if they are necessary for understanding relationships.
 
@@ -94,9 +133,9 @@ Explicitly list all labels that must appear in the image.
 
 Do NOT say "with labels".
 
-Instead specify actual structures to label.
+Instead specify actual names to render.
 
-Labels must correspond to visible anatomical structures.
+Labels must correspond to visible structures or diagram elements.
 
 ---
 
@@ -114,10 +153,10 @@ STRUCTURED MEDICAL FIGURE
 
 The image must follow a clear educational layout:
 
-• Main anatomical diagram (full system or region)
-• Highlighted area of interest (lesion, stenosis, damage, etc.)
+• Main diagram (system, region, pathway, or clinical schema as appropriate)
+• Highlighted area of interest (lesion, stenosis, branch point, key finding, etc.)
 • Directional arrows for flow or interaction
-• Optional inset diagram for simplified mechanism
+• Optional inset for a simplified mechanism or comparison
 
 ---
 
@@ -125,7 +164,7 @@ VISUAL STYLE
 
 • professional medical textbook illustration
 • clean white or neutral background
-• realistic anatomical rendering
+• realistic or clean schematic rendering as appropriate to the concept
 • clear spacing and visual hierarchy
 • crisp labels placed near structures
 
@@ -135,9 +174,9 @@ STRICT EXCLUSIONS
 
 Do NOT include:
 • patient portraits
-• emotional or clinical scenes
+• emotional or gratuitous clinical scenes
 • storytelling elements
-• irrelevant anatomy
+• irrelevant detail that competes with the primary teaching point
 
 Only include a body outline if it helps anatomical orientation.
 
@@ -148,20 +187,20 @@ OUTPUT FORMAT
 Return a single, detailed image-generation prompt written in natural descriptive language.
 
 The output must be specific enough that the generated image contains:
-• correct anatomy
+• correct structure for the topic
 • correct relationships
 • explicit labels
-• clear mechanism (if applicable)</textarea>
+• clear mechanism or reasoning flow (if applicable)</textarea>
                     </div>
 
                     <!-- User Question Section -->
                     <div class="section">
                         <div class="field-label">
                             <div class="section-title">Your Question / Medical Topic</div>
-                            <span>Optional, but improves context</span>
+                            <span>Required to generate a prompt</span>
                         </div>
                         <div class="field-row">
-                            <textarea id="userQuestion" rows="2" placeholder="e.g., Hand Anatomy, Acute Hemolytic Transfusion Reaction, Myocardial Infarction...">Hand Anatomy</textarea>
+                            <textarea id="userQuestion" rows="2" placeholder="e.g., Brachial plexus injury patterns; acute asthma exacerbation management branch points; nephrotic vs nephritic features…">Brachial plexus — Erb vs Klumpke</textarea>
                             <button onclick="generatePrompt()" id="generatePromptBtn">
                                 Generate image prompt
                             </button>
@@ -218,30 +257,10 @@ The output must be specific enough that the generated image contains:
                                         <div class="rag-label">Retrieved chunks (<span id="ragChunksCount">0</span>)</div>
                                         <div class="rag-chunks-list" id="ragChunksList"></div>
                                     </div>
-                                    <p class="rag-no-data" id="ragNoData">Generate a prompt above to see retrieved context when RAG is used.</p>
+                                    <p class="rag-no-data" id="ragNoData">Retrieved context appears here after prompt generation or Doc chat when RAG is used.</p>
                                 </div>
                             </details>
                         </div>
-                    </div>
-
-                    <!-- Doc chat section -->
-                    <div class="section">
-                        <div class="field-label">
-                            <div class="section-title">Chat With Selected Docs</div>
-                            <span>Ask direct questions grounded in your chosen sources</span>
-                        </div>
-                        <div class="helper-text">This chat is separate from prompt generation and answers from selected document context.</div>
-                        <div id="docChatMessages" class="doc-chat-messages"></div>
-                        <textarea id="docChatQuestion" rows="2" placeholder="Ask a question about the selected docs..."></textarea>
-                        <div class="rag-retrieval-actions">
-                            <button type="button" class="rag-btn rag-btn-primary" id="askDocsBtn" onclick="askDocsQuestion()">Ask docs</button>
-                            <button type="button" class="rag-btn rag-btn-secondary" id="clearDocChatBtn" onclick="clearDocChatHistory()">Clear chat</button>
-                        </div>
-                        <div class="rag-retrieval-loading hidden" id="docChatLoading">
-                            <span class="rag-spinner"></span>
-                            <span>Generating answer...</span>
-                        </div>
-                        <div class="rag-retrieval-error hidden" id="docChatError"></div>
                     </div>
 
                     <!-- Generated Prompt Section -->
@@ -256,21 +275,6 @@ The output must be specific enough that the generated image contains:
                             <button onclick="generateImage()" id="generateImageBtn">
                                 Generate image
                             </button>
-                        </div>
-                    </div>
-
-                    <!-- Upload image + create image from edits -->
-                    <div class="section">
-                        <div class="field-label">
-                            <div class="section-title">Upload Image And Create Image</div>
-                            <span>Use your own input image</span>
-                        </div>
-                        <div class="helper-text">Upload any image, describe the changes, and generate a revised image in the same chat flow.</div>
-                        <div class="upload-edit-grid">
-                            <input id="uploadImageInput" class="upload-file-input" type="file" accept="image/png,image/jpeg,image/webp" />
-                            <textarea id="uploadImageChanges" rows="3" placeholder="Describe exactly how to edit the uploaded image..."></textarea>
-                            <button onclick="uploadAndEditImage()" id="uploadEditBtn">Create Image</button>
-                            <div id="uploadEditProgress" class="upload-progress" aria-live="polite"></div>
                         </div>
                     </div>
 

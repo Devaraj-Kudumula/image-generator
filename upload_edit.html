@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload &amp; edit — AI Medical Image Generator</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark') document.documentElement.classList.add('theme-dark');
+        })();
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header class="app-header">
+            <div class="title-group">
+                <div class="title-row">
+                    <div class="app-logo" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="4" width="16" height="16" rx="2.5"/>
+                            <path d="M12 7v10M7 12h10"/>
+                        </svg>
+                    </div>
+                    <h1>Upload &amp; edit</h1>
+                </div>
+                <p class="subtitle">
+                    Start from your own image, describe edits, and iterate with the same preview and history as Studio. For text-only prompts, use Studio.
+                </p>
+            </div>
+            <div class="header-meta">
+                <div class="theme-toggle-wrap">
+                    <span class="theme-toggle-label" id="themeLabel">Dark mode</span>
+                    <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Toggle dark mode" title="Switch between light and dark theme"></button>
+                </div>
+                <span class="badge">Image &rarr; image</span>
+            </div>
+        </header>
+
+        <nav class="app-nav" aria-label="Main pages">
+            <a href="/" class="app-nav-link">Studio</a>
+            <a href="/docs-chat" class="app-nav-link">Doc chat</a>
+            <a href="/upload-edit" class="app-nav-link" aria-current="page">Upload &amp; edit</a>
+        </nav>
+
+        <main class="app-main">
+            <div class="layout">
+                <div class="column">
+                    <div class="section">
+                        <div class="field-label">
+                            <div class="section-title">Upload image and create</div>
+                            <span>Use your own input image</span>
+                        </div>
+                        <div class="helper-text">Upload an image, describe the changes, and generate a revised image. History and download use the same chat session as Studio.</div>
+                        <div class="upload-edit-grid">
+                            <input id="uploadImageInput" class="upload-file-input" type="file" accept="image/png,image/jpeg,image/webp" />
+                            <textarea id="uploadImageChanges" rows="3" placeholder="Describe exactly how to edit the uploaded image..."></textarea>
+                            <button onclick="uploadAndEditImage()" id="uploadEditBtn">Create image</button>
+                            <div id="uploadEditProgress" class="upload-progress" aria-live="polite"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="column">
+                    <div class="section">
+                        <div class="image-preview-card">
+                            <div class="image-preview-header">
+                                <div class="image-preview-title">Latest image preview</div>
+                                <div class="image-preview-meta" id="imagePreviewMeta">No image generated yet</div>
+                            </div>
+                            <div class="image-preview-empty" id="imagePreviewEmpty">
+                                Create an image from your upload to see a large preview here. Versions stay in the conversation history below.
+                            </div>
+                            <img id="currentImagePreview" class="image-preview-image" alt="Latest generated medical illustration preview" />
+                        </div>
+                        <div class="loading" id="imageLoading">
+                            <div class="spinner"></div>
+                            <p>Generating image…</p>
+                        </div>
+                        <div class="error" id="imageError"></div>
+                        <div class="success" id="imageSuccess"></div>
+                    </div>
+
+                    <div class="section">
+                        <div class="chat-session-header">
+                            <div>
+                                <div class="section-title">Chat sessions</div>
+                                <div class="helper-text">Switch between independent explorations without losing context.</div>
+                                <div class="chat-image-count" id="chatImageCount">No images generated in this chat yet</div>
+                            </div>
+                            <div class="chat-session-controls">
+                                <select id="chatSelector" class="chat-session-select" onchange="handleChatChange(event)"></select>
+                                <button type="button" class="chat-session-button" onclick="startNewChat()">New chat</button>
+                            </div>
+                        </div>
+                        <div class="section-title" style="margin-top: 4px;">Conversation history</div>
+                        <div class="conversation-container" id="conversationContainer">
+                            <p style="color: #6b7280;">Your upload requests and generated images will appear here.</p>
+                        </div>
+                        <div class="button-group">
+                            <button onclick="downloadImage()" id="downloadBtn" style="display: none;">
+                                Download latest image
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="section llm-metrics-compact">
+                        <div class="llm-metrics-header-row">
+                            <div class="section-title">LLM Metrics</div>
+                            <div class="llm-total-calls-chip">
+                                Calls: <span id="totalCallsValue">0</span>
+                            </div>
+                        </div>
+
+                        <details class="llm-expand-item" id="tokensMetricsDetails">
+                            <summary class="llm-expand-summary">
+                                <span class="llm-expand-label">Tokens</span>
+                                <span class="llm-expand-total" id="totalTokensValue">0</span>
+                            </summary>
+                            <div class="llm-expand-body">
+                                <div class="llm-breakdown-row">
+                                    <span>GPT</span>
+                                    <span id="gptTokensValue">0</span>
+                                </div>
+                                <div class="llm-breakdown-row">
+                                    <span>Gemini</span>
+                                    <span id="geminiTokensValue">0</span>
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="llm-metrics-note" id="llmMetricsNote">Token counts for this session.</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="imageFullscreenOverlay" class="image-fullscreen-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+            <button type="button" class="image-fullscreen-close" aria-label="Close full-screen image" onclick="closeImageFullscreen()">
+                &times;
+            </button>
+            <div class="image-fullscreen-inner" onclick="closeImageFullscreen()">
+                <img id="imageFullscreen" class="image-fullscreen-image" alt="Full-screen view of latest generated medical illustration" onclick="event.stopPropagation();" />
+                <div id="imageFullscreenCaption" class="image-fullscreen-caption">Latest generated image</div>
+            </div>
+        </div>
+
+        <script src="/static/app.js"></script>
+</body>
+</html>
