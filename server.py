@@ -48,7 +48,6 @@ else:
 logger.info("Initializing LLM...")
 state.llm = init_llm()
 state.openai_api_key = config.OPENAI_API_KEY
-state.google_api_key = config.GOOGLE_API_KEY
 
 logger.info("Initializing Gemini client...")
 state.gemini_client = init_gemini()

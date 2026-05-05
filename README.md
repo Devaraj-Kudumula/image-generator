@@ -1,6 +1,6 @@
 ## AI Medical Image Generator
 
-Turn clinical ideas into exam-ready medical illustrations. The app uses an LLM (with optional RAG) to craft image prompts and Google Gemini to generate and edit images.
+Turn clinical ideas into exam-ready medical illustrations. The Studio UI sends prompts directly to Google Gemini for generation and editing; Doc chat uses an LLM with RAG for Q&A over your PDFs.
 
 ---
 
@@ -43,19 +43,18 @@ Turn clinical ideas into exam-ready medical illustrations. The app uses an LLM (
 
 ## Overall application flow
 
-- **Frontend (`index.html`, `static/app.js`, `static/styles.css`)**
-  - User sets a **system instruction**, enters a **medical question/topic**, and clicks **Generate image prompt**.
-  - Frontend calls `/generate-prompt`, optionally using RAG controls (source documents, web retrieval, NO RAG).
-  - The generated prompt is editable; clicking **Generate image** calls `/generate-image`.
-  - Conversation history tracks prompts and image versions; users can request edits inline, which call `/edit-image`.
+- **Frontend (`index.html`, `docs_chat.html`, `upload_edit.html`, `static/app.js`, `static/styles.css`)**
+  - **Studio** (`/`): user writes or pastes an image prompt and calls `/generate-image`; history, `/edit-image`, and `/get-accurate` support iteration.
+  - **Doc chat** (`/docs-chat`): user selects documents and asks questions; the frontend calls `/chat-with-docs` (RAG over MongoDB + session uploads).
+  - **Upload & edit** (`/upload-edit`): user uploads an image and describes edits via `/edit-image`.
 
 - **Backend (`server.py` + routes)**
   - `server.py` loads config, initializes LLM, Gemini, MongoDB vectorstore, Serper, and shared `AppState`, then registers routes.
-  - `routes/main_routes.py` serves `index.html` (`/`) and exposes `/health`.
+  - `routes/main_routes.py` serves HTML pages and exposes `/health`.
   - `routes/rag_routes.py` exposes:
-    - `/generate-prompt` – builds a detailed image prompt using OpenAI + optional RAG (MongoDB vectorstore + web).
-    - `/re-run-retrieval` – re-runs retrieval for updated doc selection/query.
-    - `/doc-names` – lists available `doc_name` values from MongoDB.
+    - `/chat-with-docs` – answers from retrieved chunks using the OpenAI chat model.
+    - `/doc-names` – lists library and session document names.
+    - `/upload-doc`, `/session/reset` – session-scoped PDF ingest and cleanup.
   - `routes/image_routes.py` exposes:
     - `/generate-image` – sends the prompt to Gemini and stores image bytes (in-memory + optional disk).
     - `/images/<filename>` – serves generated images from memory or `static/images/`.
@@ -63,7 +62,7 @@ Turn clinical ideas into exam-ready medical illustrations. The app uses an LLM (
 
 - **Data & RAG**
   - `db.init_mongo()` connects to MongoDB Atlas, configures `MongoDBAtlasVectorSearch`, builds a retriever, and loads known `doc_name`s.
-  - `services.rag_service` normalizes source selection, runs vector + web retrieval, and builds the combined context string for the LLM.
+  - `services.rag_service` normalizes source selection, runs vector + web retrieval, and builds the combined context string for doc chat and retrieval.
   - `services.image_service` wraps Gemini calls and image storage; `backend/image_utils.py` handles data URL and PNG extraction.
 
 ---
@@ -78,16 +77,16 @@ Turn clinical ideas into exam-ready medical illustrations. The app uses an LLM (
 - **`backend/image_utils.py`**: Utility helpers for converting image bytes ↔ data URLs and extracting PNG bytes from Gemini responses.
 
 - **`routes/main_routes.py`**: `/` (serves `index.html`) and `/health` (reports config/RAG readiness).
-- **`routes/rag_routes.py`**: `/generate-prompt`, `/re-run-retrieval`, `/doc-names` for RAG-driven prompt generation and retrieval control.
+- **`routes/rag_routes.py`**: `/chat-with-docs`, `/doc-names`, `/upload-doc`, `/session/reset`.
 - **`routes/image_routes.py`**: `/generate-image`, `/edit-image`, `/images/<filename>` for image generation, editing, and serving.
   It also exposes `/get-accurate`, which runs a multi-step accuracy refinement loop:
   GPT-4o vision first detects labeling/arrow flaws in an image, then Gemini applies up to five targeted correction passes.
 
-- **`services/rag_service.py`**: Implements retrieval logic (doc name validation, NO RAG / WEB_RETRIEVAL flags, Serper + web scraping, vector search, context assembly, structured retrieval query building).
+- **`services/rag_service.py`**: Implements retrieval logic (doc name validation, NO RAG / WEB_RETRIEVAL flags, Serper + web scraping, vector search, context assembly).
 - **`services/image_service.py`**: Implements Gemini-based image generation and editing, the `/get-accurate` iterative flaw-detection-and-fix pipeline, plus in-memory/disk storage and retrieval of image bytes.
 
-- **`index.html`**: Single-page UI with system instruction, question, RAG controls, editable prompt, image preview, chat sessions, and full-screen image viewer.
-- **`static/app.js`**: Frontend logic for theme toggle, chat sessions, RAG controls, calling `/generate-prompt`, `/re-run-retrieval`, `/generate-image`, `/edit-image`, and updating the UI.
+- **`index.html`**, **`docs_chat.html`**, **`upload_edit.html`**: Studio, document Q&A, and upload-to-edit flows.
+- **`static/app.js`**: Shared frontend logic (theme, chat sessions, doc selection, `/chat-with-docs`, `/generate-image`, `/edit-image`, `/get-accurate`, uploads).
 - **`static/styles.css`**: Modern light/dark theme styling, layout, prompt/editor sections, conversation history, RAG panel, and image preview/fullscreen UI.
 - **`static/images/`**: Optional directory where generated images are persisted when not running in a serverless environment.
 

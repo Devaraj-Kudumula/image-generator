@@ -18,8 +18,19 @@ from backend.image_utils import (
 )
 from app_state import state
 import config
-from services.llm_metrics_service import record_gemini_call, record_openai_sdk_call
-
+from prompts import (
+    EDIT_IMAGE_USER_PREFIX,
+    EDIT_VISUAL_CONTINUITY,
+    STRUCTURAL_DETECTION_SYSTEM,
+    STRUCTURAL_DETECTION_USER,
+    STRUCTURAL_DETECTION_ORIGINAL_PROMPT_SUFFIX,
+    LABEL_DETECTION_SYSTEM,
+    LABEL_DETECTION_USER,
+    LABEL_DETECTION_ORIGINAL_PROMPT_SUFFIX,
+    STRUCTURAL_CORRECTION_SYSTEM,
+    LABEL_POLISH_SYSTEM,
+    INTENT_SUFFIX_TEMPLATE,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -35,7 +46,6 @@ def generate_image(prompt: str) -> Tuple[str, bytes, str]:
         model="gemini-3-pro-image-preview",
         contents=[prompt],
     )
-    record_gemini_call(response, "gemini-3-pro-image-preview")
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'image_{timestamp}.png'
@@ -122,19 +132,6 @@ def _summarize_image_for_trace(
     return out
 
 
-# Appended to Gemini edit prompts when we must limit drift (accuracy reiteration).
-_EDIT_VISUAL_CONTINUITY = (
-    "\n\nVISUAL CONTINUITY (mandatory):\n"
-    "• Keep the same viewpoint, framing, crop, and composition as the input — "
-    "do not change camera angle, zoom, or layout.\n"
-    "• Preserve background, margins, canvas edges, and negative space; "
-    "only alter regions the fix explicitly requires.\n"
-    "• Match the existing color palette, saturation, contrast, and lighting; "
-    "do not recolor, regrade, or restyle the image for a 'new' look.\n"
-    "• Keep the same illustration style, line weights, fills, and shadows.\n"
-    "• Make the smallest edit that fixes the issue; the result should look "
-    "almost the same as the input except for the corrected details.\n"
-)
 
 
 def edit_image(
@@ -155,16 +152,15 @@ def edit_image(
     image = load_image_for_edit(filename, image_data_url)
 
     prompt = (
-        "Edit the following image based on the requested changes:\n\n"
-        f"Changes: {changes}"
-        + (_EDIT_VISUAL_CONTINUITY if preserve_visual_identity else "")
+        EDIT_IMAGE_USER_PREFIX
+        + f"Changes: {changes}"
+        + (EDIT_VISUAL_CONTINUITY if preserve_visual_identity else "")
     )
     try:
         response = state.gemini_client.models.generate_content(
             model="gemini-3-pro-image-preview",
             contents=[prompt, image],
         )
-        record_gemini_call(response, "gemini-3-pro-image-preview")
     except Exception as api_error:
         raise ValueError(f"Error calling Gemini API: {str(api_error)}") from api_error
 
@@ -314,7 +310,6 @@ def _detect_flaws_via_openai(
         ],
         max_completion_tokens=2000,
     )
-    record_openai_sdk_call(response, model)
     text = response.choices[0].message.content.strip()
     logger.info("--- [%s] INPUT ---\n[system]: %s\n\n[user]: %s", tag, system_prompt, user_prompt)
     logger.info("--- [%s] OUTPUT ---\n%s", tag, text)
@@ -384,7 +379,7 @@ def get_accurate_image(
     trace: Optional[List[Dict[str, Any]]] = [] if collect_trace else None
 
     intent_snippet = (
-        f"\n\nORIGINAL PROMPT (preserve this intent):\n{original_prompt.strip()}"
+        INTENT_SUFFIX_TEMPLATE.format(original_prompt=original_prompt.strip())
         if original_prompt and original_prompt.strip()
         else ""
     )
@@ -392,36 +387,19 @@ def get_accurate_image(
     # -----------------------------------------------------------------------
     # Stage A — OpenAI detects structural flaws
     # -----------------------------------------------------------------------
-    structural_detection_system = (
-        "You are a rigorous medical illustration quality-control expert. "
-        "Your sole job is to detect inaccuracies in the structural design of "
-        "scientific diagrams (anatomy, proportions, spatial relationships, topology). "
-        "You are thorough, critical, and never lenient — report every structural error, "
-        "no matter how subtle."
-    )
-
     structural_detection_prompt = (
-        "Examine this diagram image with extreme care.\n\n"
-        "STEP 1 — Inventory: Describe the overall structural design — shapes, "
-        "relative positions, proportions, and connections between parts.\n\n"
-        "STEP 2 — Verify the structural design against your medical/scientific knowledge:\n"
-        "  • Are structures anatomically/scientifically correct in shape and form?\n"
-        "  • Are sizes and proportions realistic relative to each other?\n"
-        "  • Are spatial relationships and topology (what connects to what, and where) accurate?\n"
-        "  • Are any components missing, duplicated, distorted, or in the wrong location?\n\n"
-        "STEP 3 — Report structural flaws as a numbered list, most critical first. "
-        "Each item: ONE flaw and what it should be instead.\n"
-        "If there are absolutely no structural errors: output only NO_FLAWS_DETECTED."
+        STRUCTURAL_DETECTION_USER
         + (
-            f"\n\nORIGINAL PROMPT — use this to prioritise which structural properties matter most:\n"
-            f"{original_prompt.strip()}"
+            STRUCTURAL_DETECTION_ORIGINAL_PROMPT_SUFFIX.format(
+                original_prompt=original_prompt.strip()
+            )
             if original_prompt and original_prompt.strip() else ""
         )
     )
 
     structural_flaw_text = _detect_flaws_via_openai(
         oa_client,
-        structural_detection_system,
+        STRUCTURAL_DETECTION_SYSTEM,
         structural_detection_prompt,
         image_data_url,
         tag="structural-detection",
@@ -433,36 +411,19 @@ def get_accurate_image(
     # -----------------------------------------------------------------------
     # Stage B — OpenAI detects label & text flaws
     # -----------------------------------------------------------------------
-    label_detection_system = (
-        "You are a rigorous medical illustration quality-control expert specialising in "
-        "label and annotation accuracy. You check spelling, anatomical correctness of each "
-        "label name, arrow targets, and visual legibility of all text. "
-        "You are thorough and never lenient — report every label error, however small."
-    )
-
     label_detection_prompt = (
-        "Examine this diagram image with extreme care, focusing exclusively on labels, "
-        "annotations, callout lines, and arrows.\n\n"
-        "STEP 1 — Inventory: List every label, annotation, and arrow visible.\n\n"
-        "STEP 2 — Verify each label and arrow:\n"
-        "  • Is the label text spelled correctly?\n"
-        "  • Does the label correctly name the structure it refers to?\n"
-        "  • Is the arrow/callout pointing to the correct structure?\n"
-        "  • Is the text clean, undistorted, and fully legible "
-        "(no blurring, warping, overlapping, or garbling)?\n"
-        "  • Are any labels missing, duplicated, or on the wrong structure?\n\n"
-        "STEP 3 — Report label/annotation flaws as a numbered list, most critical first. "
-        "Each item: ONE flaw, what is wrong, and what it should say or point to instead.\n"
-        "If there are absolutely no label errors: output only NO_FLAWS_DETECTED."
+        LABEL_DETECTION_USER
         + (
-            f"\n\nORIGINAL PROMPT for context:\n{original_prompt.strip()}"
+            LABEL_DETECTION_ORIGINAL_PROMPT_SUFFIX.format(
+                original_prompt=original_prompt.strip()
+            )
             if original_prompt and original_prompt.strip() else ""
         )
     )
 
     label_flaw_text = _detect_flaws_via_openai(
         oa_client,
-        label_detection_system,
+        LABEL_DETECTION_SYSTEM,
         label_detection_prompt,
         image_data_url,
         tag="label-detection",
@@ -536,19 +497,6 @@ def get_accurate_image(
 
     correction_prompts: List[str] = []
 
-    structural_prompt_system = (
-        "You are an expert at writing precise image-editing instructions for "
-        "AI image models. Given a list of structural flaws in a scientific diagram "
-        "and the original generation intent, write a single, clear, actionable "
-        "editing instruction that tells the image model exactly what to fix. "
-        "Be specific about what is wrong and what the correct version should look like. "
-        "Do NOT fix labels or text — structural changes only. "
-        "The instruction MUST require preserving the original viewpoint, framing, "
-        "composition, background, color palette, lighting, and illustration style — "
-        "only surgically correct the listed structural issues with minimal visual drift. "
-        "Output the instruction as plain text (no preamble, no bullet points)."
-    )
-
     for i in range(num_structural_passes):
         batch = structural_flaws[i * MAX_FLAWS_PER_PROMPT: (i + 1) * MAX_FLAWS_PER_PROMPT]
         flaw_list = "\n".join(f"- {f}" for f in batch)
@@ -559,12 +507,11 @@ def get_accurate_image(
             model="gpt-5.4",
             temperature=0,
             messages=[
-                {"role": "system", "content": structural_prompt_system},
+                {"role": "system", "content": STRUCTURAL_CORRECTION_SYSTEM},
                 {"role": "user", "content": structural_user_msg},
             ],
             max_completion_tokens=500,
         )
-        record_openai_sdk_call(openai_prompt_gen_response, "gpt-5.4")
         generated_prompt = openai_prompt_gen_response.choices[0].message.content.strip()
         logger.info("Generated structural correction prompt %d/%d:\n%s", i + 1, num_structural_passes, generated_prompt)
         if trace is not None:
@@ -578,7 +525,7 @@ def get_accurate_image(
                     "provider": "openai",
                     "model": "gpt-5.4",
                     "input": {
-                        "system_prompt": structural_prompt_system,
+                        "system_prompt": STRUCTURAL_CORRECTION_SYSTEM,
                         "user_prompt": structural_user_msg,
                     },
                     "output": {"generated_edit_instruction": generated_prompt},
@@ -597,32 +544,17 @@ def get_accurate_image(
         else "No specific label errors detected, but re-render all text cleanly."
     )
 
-    label_polish_system = (
-        "You are an expert at writing precise image-editing instructions for "
-        "AI image models. Given a list of label/annotation flaws in a scientific diagram "
-        "and the original generation intent, write a single, clear, actionable "
-        "editing instruction that tells the image model exactly what to fix. "
-        "The instruction must: fix every listed label error, ensure all arrows point "
-        "to the correct structures, and re-render ALL text in a clean sans-serif font "
-        "with no blurring, warping, distortion, or overlapping — even if no specific "
-        "label errors were found, because prior edit passes may have degraded text quality. "
-        "Do NOT change any underlying structures or anatomy, viewpoint, framing, "
-        "background, or overall colors — text and leader lines only unless a label fix "
-        "requires a tiny local adjustment. "
-        "Output the instruction as plain text (no preamble, no bullet points)."
-    )
     label_polish_user = f"Label/annotation flaws to fix:\n{label_flaw_summary}" + intent_snippet
 
     label_polish_gen_response = oa_client.chat.completions.create(
         model="gpt-5.4",
         temperature=0,
         messages=[
-            {"role": "system", "content": label_polish_system},
+            {"role": "system", "content": LABEL_POLISH_SYSTEM},
             {"role": "user", "content": label_polish_user},
         ],
         max_completion_tokens=500,
     )
-    record_openai_sdk_call(label_polish_gen_response, "gpt-5.4")
     label_polish_prompt = label_polish_gen_response.choices[0].message.content.strip()
     logger.info("Generated label polish prompt:\n%s", label_polish_prompt)
     if trace is not None:
@@ -633,7 +565,7 @@ def get_accurate_image(
                 "provider": "openai",
                 "model": "gpt-5.4",
                 "input": {
-                    "system_prompt": label_polish_system,
+                    "system_prompt": LABEL_POLISH_SYSTEM,
                     "user_prompt": label_polish_user,
                 },
                 "output": {"generated_edit_instruction": label_polish_prompt},

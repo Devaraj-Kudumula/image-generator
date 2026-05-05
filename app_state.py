@@ -9,7 +9,6 @@ class AppState:
 
     def __init__(self):
         self.openai_api_key = None
-        self.google_api_key = None
         self.llm = None
         self.gemini_client = None
         self.mongo_client = None

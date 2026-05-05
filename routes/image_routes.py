@@ -259,7 +259,7 @@ def register(app):
             try:
                 (
                     final_filename,
-                    final_bytes,
+                    _,
                     final_data_url,
                     flaws_count,
                     iterations,

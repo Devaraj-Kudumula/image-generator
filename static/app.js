@@ -24,44 +24,22 @@ let chats = [];
 let activeChatId = null;
 let nextChatId = 1;
 let nextMessageId = 1;
-let lastRagChunks = [];
 let docChatHistory = [];
 const NO_RAG_OPTION_VALUE = 'NO_RAG';
 const WEB_RETRIEVAL_OPTION_VALUE = 'WEB_RETRIEVAL';
-let llmMetricsPollingId = null;
 const SESSION_STORAGE_KEY = 'image_generator_session_id';
-
 function generateClientSessionId() {
     const randomPart = Math.random().toString(36).slice(2, 10);
     return 'sess_' + Date.now().toString(36) + '_' + randomPart;
 }
 
 let CLIENT_SESSION_ID = generateClientSessionId();
-const SESSION_METRICS_SCOPE = 'sess-' + Date.now() + '-' + Math.floor(Math.random() * 1_000_000);
-
-function getActiveChatMetricId() {
-    const chatPart = activeChatId ? ('chat-' + String(activeChatId)) : 'chat-0';
-    return SESSION_METRICS_SCOPE + ':' + chatPart;
-}
 
 function withActiveChatId(payload) {
     return {
         ...(payload || {}),
-        chat_id: getActiveChatMetricId(),
         session_id: CLIENT_SESSION_ID,
     };
-}
-
-const EXAM_FOCUS_STORAGE_KEY = 'image_gen_exam_focus';
-
-function getExamFocus() {
-    const el = document.getElementById('examFocus');
-    return el && el.value ? el.value : 'general';
-}
-
-function getExamTeachingNotes() {
-    const el = document.getElementById('examTeachingNotes');
-    return el ? String(el.value || '').trim() : '';
 }
 
 async function resetServerSession(sessionId) {
@@ -78,39 +56,6 @@ async function resetServerSession(sessionId) {
     }
 }
 
-function formatInteger(value) {
-    const parsed = Number(value) || 0;
-    return parsed.toLocaleString();
-}
-
-async function refreshLlmMetrics() {
-    try {
-        const response = await fetch('/llm-metrics?chat_id=' + encodeURIComponent(getActiveChatMetricId()));
-        if (!response.ok) return;
-        const data = await response.json();
-        const providers = data && data.providers ? data.providers : {};
-        const gpt = providers.gpt || {};
-        const gemini = providers.gemini || {};
-        const overall = data && data.overall ? data.overall : {};
-
-        const gptTokensEl = document.getElementById('gptTokensValue');
-        const geminiTokensEl = document.getElementById('geminiTokensValue');
-        const totalTokensEl = document.getElementById('totalTokensValue');
-        const totalCallsEl = document.getElementById('totalCallsValue');
-        const noteEl = document.getElementById('llmMetricsNote');
-
-        if (gptTokensEl) gptTokensEl.textContent = formatInteger(gpt.total_tokens);
-        if (geminiTokensEl) geminiTokensEl.textContent = formatInteger(gemini.total_tokens);
-        if (totalTokensEl) totalTokensEl.textContent = formatInteger(overall.total_tokens);
-        if (totalCallsEl) totalCallsEl.textContent = formatInteger(overall.calls);
-        if (noteEl) {
-            noteEl.textContent = 'Token counts for this session.';
-        }
-    } catch (error) {
-        // Keep the UI silent if metrics endpoint is temporarily unavailable.
-    }
-}
-
 function isNoRagSelected(docNames) {
     const selected = Array.isArray(docNames) ? docNames : getSelectedDocNames();
     return selected.includes(NO_RAG_OPTION_VALUE);
@@ -118,15 +63,10 @@ function isNoRagSelected(docNames) {
 
 function updateRetrievalActionsState() {
     const noRag = isNoRagSelected();
-    const reRunBtn = document.getElementById('reRunRetrievalBtn');
-    const reSynthesizeBtn = document.getElementById('reSynthesizePromptBtn');
     const errorEl = document.getElementById('ragRetrievalError');
 
-    if (reRunBtn) reRunBtn.disabled = noRag;
-    if (reSynthesizeBtn) reSynthesizeBtn.disabled = noRag;
-
     if (errorEl && noRag) {
-        errorEl.textContent = 'NO RAG is selected. Prompt generation will use only system instruction and user question.';
+        errorEl.textContent = 'NO RAG is selected. No document context will be retrieved.';
         errorEl.classList.remove('hidden');
     } else if (errorEl) {
         errorEl.textContent = '';
@@ -139,7 +79,7 @@ function renderDocChatHistory() {
     if (!container) return;
 
     if (!docChatHistory.length) {
-        container.innerHTML = '<p class="doc-chat-empty">Ask a question to start document chat.</p>';
+        container.innerHTML = '<p class="doc-chat-empty">Your messages will show up here. Enter a question below to begin.</p>';
         return;
     }
 
@@ -150,7 +90,7 @@ function renderDocChatHistory() {
 
         const roleLabel = document.createElement('div');
         roleLabel.className = 'doc-chat-role';
-        roleLabel.textContent = entry.role === 'user' ? 'You' : 'Assistant';
+        roleLabel.textContent = entry.role === 'user' ? 'You' : 'Answer';
 
         const content = document.createElement('div');
         content.className = 'doc-chat-content';
@@ -205,7 +145,7 @@ async function askDocsQuestion() {
     const chatHistoryContext = buildDocChatHistoryContext();
     if (isNoRagSelected(selectedDocNames)) {
         if (errorEl) {
-            errorEl.textContent = 'NO RAG is selected. Enable source docs to chat.';
+            errorEl.textContent = 'Select at least one document or source. Turn off the option “Don\u2019t use my documents” to get answers from your materials.';
             errorEl.classList.remove('hidden');
         }
         return;
@@ -245,7 +185,6 @@ async function askDocsQuestion() {
         });
         renderDocChatHistory();
 
-        updateRagDetails(data.search_query, data.chunks || [], true);
         if (Array.isArray(data.selected_doc_names)) {
             setSelectedDocNames(data.selected_doc_names);
         }
@@ -362,18 +301,18 @@ async function loadDocNames() {
 
         const noRagOption = document.createElement('option');
         noRagOption.value = NO_RAG_OPTION_VALUE;
-        noRagOption.textContent = 'NO RAG';
+        noRagOption.textContent = "Don't use my documents";
         select.appendChild(noRagOption);
 
         const webRetrievalOption = document.createElement('option');
         webRetrievalOption.value = WEB_RETRIEVAL_OPTION_VALUE;
-        webRetrievalOption.textContent = 'Web Retrieval';
+        webRetrievalOption.textContent = 'Include web search';
         select.appendChild(webRetrievalOption);
 
         if (docNames.length === 0) {
             const option = document.createElement('option');
             option.value = '';
-            option.textContent = 'No source documents found';
+            option.textContent = 'No library PDFs available';
             option.disabled = true;
             select.appendChild(option);
         } else {
@@ -389,7 +328,7 @@ async function loadDocNames() {
         if (sessionDocNames.length === 0) {
             const option = document.createElement('option');
             option.value = '';
-            option.textContent = 'No uploaded docs in this session';
+            option.textContent = 'No PDF uploaded in this session yet';
             option.disabled = true;
             sessionSelect.appendChild(option);
         } else {
@@ -431,7 +370,6 @@ function createNewChat(name) {
     renderConversation();
     updateDownloadButtonVisibility();
     updateChatImageCountDisplay();
-    refreshLlmMetrics();
     return chat;
 }
 
@@ -483,7 +421,6 @@ function handleChatChange(event) {
     renderConversation();
     updateDownloadButtonVisibility();
     updateChatImageCountDisplay();
-    refreshLlmMetrics();
 }
 
 function startNewChat() {
@@ -931,264 +868,6 @@ async function getAccurateImage(entryIndex, options) {
     }
 }
 
-async function generatePrompt() {
-    const systemInstruction = document.getElementById('systemInstruction').value;
-    const userQuestion = document.getElementById('userQuestion').value;
-    const selectedDocNames = getSelectedDocNames();
-    const disableRag = isNoRagSelected(selectedDocNames);
-
-    if (!systemInstruction.trim()) {
-        showError('promptError', 'Please enter a system instruction');
-        return;
-    }
-
-    if (!userQuestion.trim()) {
-        showError('promptError', 'Please enter your medical topic or question');
-        return;
-    }
-
-    const btn = document.getElementById('generatePromptBtn');
-    const loading = document.getElementById('promptLoading');
-    const errorDiv = document.getElementById('promptError');
-
-    btn.disabled = true;
-    loading.classList.add('active');
-    errorDiv.classList.remove('active');
-
-    try {
-        const response = await fetch('/generate-prompt', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                ...withActiveChatId({
-                    system_instruction: systemInstruction,
-                    user_question: userQuestion,
-                    selected_doc_names: selectedDocNames,
-                    disable_rag: disableRag,
-                    prompt_mode: _currentPromptMode,
-                    exam_focus: getExamFocus(),
-                    exam_teaching_notes: getExamTeachingNotes()
-                })
-            })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            document.getElementById('generatedPrompt').value = data.prompt;
-            updateRagDetails(data.search_query, data.chunks || [], true);
-            if (Array.isArray(data.selected_doc_names)) {
-                setSelectedDocNames(data.selected_doc_names);
-            }
-        } else {
-            showError('promptError', data.error || 'Failed to generate prompt');
-        }
-    } catch (error) {
-        showError('promptError', 'Error connecting to server: ' + error.message);
-    } finally {
-        btn.disabled = false;
-        loading.classList.remove('active');
-    }
-}
-
-function updateRagDetails(searchQuery, chunks, fromRun) {
-    const wrapper = document.getElementById('ragDetailsWrapper');
-    const searchBlock = document.getElementById('ragSearchQueryBlock');
-    const chunksBlock = document.getElementById('ragChunksBlock');
-    const chunksCountEl = document.getElementById('ragChunksCount');
-    const chunksList = document.getElementById('ragChunksList');
-    const noData = document.getElementById('ragNoData');
-    const badge = document.getElementById('ragDetailsBadge');
-
-    if (!wrapper) return;
-
-    const hasRag = (searchQuery != null && searchQuery !== '') || (chunks && chunks.length > 0);
-
-    if (fromRun && (searchQuery != null || (chunks && chunks.length > 0))) {
-        lastRagChunks = Array.isArray(chunks) ? chunks : [];
-    }
-
-    if (!hasRag) {
-        noData.classList.remove('hidden');
-        noData.textContent = fromRun
-            ? 'No chunks for this run (RAG was not used).'
-            : 'Retrieved context appears here after you run prompt generation on Studio or ask questions on Doc chat.';
-        searchBlock.classList.remove('hidden');
-        chunksBlock.classList.add('hidden');
-        if (badge) badge.textContent = 'No RAG used';
-        chunksList.innerHTML = '';
-        return;
-    }
-
-    noData.classList.add('hidden');
-    searchBlock.classList.remove('hidden');
-
-    if (chunks && chunks.length > 0) {
-        chunksBlock.classList.remove('hidden');
-        chunksCountEl.textContent = chunks.length;
-        chunksList.innerHTML = '';
-        chunks.forEach((chunk, index) => {
-            const content = typeof chunk === 'string' ? chunk : (chunk.content || '');
-            const preview = content.slice(0, 80).replace(/\s+/g, ' ').trim() + (content.length > 80 ? '…' : '');
-            const rawMetadata = (chunk && typeof chunk === 'object' && chunk.metadata) ? chunk.metadata : {};
-            const nestedMetadata = (rawMetadata && typeof rawMetadata === 'object' && rawMetadata.metadata && typeof rawMetadata.metadata === 'object') ? rawMetadata.metadata : {};
-            const sourceType = (rawMetadata && rawMetadata.source_type) ? String(rawMetadata.source_type) : 'vector';
-            const docName = (rawMetadata && rawMetadata.doc_name) || (nestedMetadata && nestedMetadata.doc_name) || 'Unknown';
-            const sourceUrl = (rawMetadata && rawMetadata.url) ? String(rawMetadata.url) : '';
-            const similarityScore = (rawMetadata && typeof rawMetadata.similarity_score === 'number')
-                ? rawMetadata.similarity_score
-                : null;
-            const sourceLabel = sourceType === 'web' ? 'Web source' : 'doc_name';
-            const sourceValue = sourceType === 'web' ? (sourceUrl || 'Unknown URL') : String(docName);
-            const item = document.createElement('details');
-            item.className = 'rag-chunk-item';
-            const scoreLine = similarityScore !== null
-                ? '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">similarity_score:</span>' + escapeHtml(similarityScore.toFixed(4)) + '</div>'
-                : '';
-            item.innerHTML =
-                '<summary class="rag-chunk-summary"><span class="rag-chunk-preview">Chunk ' + (index + 1) + ': ' + escapeHtml(preview) + '</span></summary>' +
-                '<div class="rag-chunk-meta-inline"><span class="rag-chunk-meta-label">' + escapeHtml(sourceLabel) + ':</span>' + escapeHtml(sourceValue) + '</div>' +
-                scoreLine +
-                '<div class="rag-chunk-content">' + escapeHtml(content) + '</div>';
-            chunksList.appendChild(item);
-        });
-        if (badge) badge.textContent = chunks.length + ' chunk' + (chunks.length !== 1 ? 's' : '');
-    } else {
-        chunksBlock.classList.remove('hidden');
-        chunksCountEl.textContent = '0';
-        chunksList.innerHTML = '';
-        if (badge) badge.textContent = 'No chunks';
-    }
-}
-
-async function reRunRetrieval() {
-    const loadingEl = document.getElementById('ragRetrievalLoading');
-    const errorEl = document.getElementById('ragRetrievalError');
-    const btn = document.getElementById('reRunRetrievalBtn');
-    const searchQuery = document.getElementById('userQuestion').value.trim();
-    const selectedDocNames = getSelectedDocNames();
-    if (isNoRagSelected(selectedDocNames)) {
-        if (errorEl) {
-            errorEl.textContent = 'Retrieval is disabled while NO RAG is selected.';
-            errorEl.classList.remove('hidden');
-        }
-        return;
-    }
-    if (!searchQuery) {
-        if (errorEl) {
-            errorEl.textContent = 'Enter your medical topic/question first.';
-            errorEl.classList.remove('hidden');
-        }
-        return;
-    }
-    if (loadingEl) loadingEl.classList.remove('hidden');
-    if (errorEl) {
-        errorEl.textContent = '';
-        errorEl.classList.add('hidden');
-    }
-    if (btn) btn.disabled = true;
-    try {
-        const response = await fetch('/re-run-retrieval', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ...withActiveChatId({
-                    search_query: searchQuery,
-                    selected_doc_names: selectedDocNames,
-                    exam_focus: getExamFocus(),
-                    exam_teaching_notes: getExamTeachingNotes()
-                })
-            })
-        });
-        const data = await response.json();
-        if (response.ok) {
-            lastRagChunks = data.chunks || [];
-            updateRagDetails(searchQuery, lastRagChunks, true);
-            if (Array.isArray(data.selected_doc_names)) {
-                setSelectedDocNames(data.selected_doc_names);
-            }
-        } else {
-            if (errorEl) {
-                errorEl.textContent = data.error || 'Retrieval failed';
-                errorEl.classList.remove('hidden');
-            }
-        }
-    } catch (err) {
-        if (errorEl) {
-            errorEl.textContent = 'Error: ' + (err.message || 'Network error');
-            errorEl.classList.remove('hidden');
-        }
-    } finally {
-        if (loadingEl) loadingEl.classList.add('hidden');
-        if (btn) btn.disabled = false;
-    }
-}
-
-async function reSynthesizePrompt() {
-    const systemInstruction = document.getElementById('systemInstruction').value.trim();
-    const userQuestion = document.getElementById('userQuestion').value.trim();
-    const searchQuery = userQuestion;
-    const chunks = lastRagChunks;
-    const selectedDocNames = getSelectedDocNames();
-    if (isNoRagSelected(selectedDocNames)) {
-        showError('promptError', 'NO RAG is selected. Use "Generate image prompt" for direct prompt generation.');
-        return;
-    }
-    if (!systemInstruction) {
-        showError('promptError', 'Please enter a system instruction');
-        return;
-    }
-    if (!userQuestion) {
-        showError('promptError', 'Please enter your medical topic or question');
-        return;
-    }
-    if (!chunks || chunks.length === 0) {
-        showError('promptError', 'No retrieved chunks. Click "Retrieve chunks" first.');
-        return;
-    }
-    const btn = document.getElementById('reSynthesizePromptBtn');
-    const loading = document.getElementById('promptLoading');
-    const errorDiv = document.getElementById('promptError');
-    if (btn) btn.disabled = true;
-    loading.classList.add('active');
-    errorDiv.classList.remove('active');
-    try {
-        const response = await fetch('/generate-prompt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                ...withActiveChatId({
-                    system_instruction: systemInstruction,
-                    user_question: userQuestion,
-                    search_query: searchQuery,
-                    chunks: chunks,
-                    selected_doc_names: selectedDocNames,
-                    prompt_mode: _currentPromptMode,
-                    exam_focus: getExamFocus(),
-                    exam_teaching_notes: getExamTeachingNotes()
-                })
-            })
-        });
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('generatedPrompt').value = data.prompt;
-            updateRagDetails(data.search_query, data.chunks || [], true);
-            if (Array.isArray(data.selected_doc_names)) {
-                setSelectedDocNames(data.selected_doc_names);
-            }
-        } else {
-            showError('promptError', data.error || 'Failed to re-synthesize prompt');
-        }
-    } catch (err) {
-        showError('promptError', 'Error: ' + (err.message || 'Network error'));
-    } finally {
-        if (btn) btn.disabled = false;
-        loading.classList.remove('active');
-    }
-}
-
 async function uploadRagDocument() {
     const fileInput = document.getElementById('ragUploadFileInput');
     const uploadBtn = document.getElementById('uploadRagDocBtn');
@@ -1216,7 +895,7 @@ async function uploadRagDocument() {
         uploadBtn.disabled = true;
         uploadBtn.textContent = 'Uploading...';
     }
-    if (statusEl) statusEl.textContent = 'Processing PDF: chunking, embedding, and saving...';
+    if (statusEl) statusEl.textContent = 'Processing your PDF… this may take a moment.';
 
     try {
         const response = await fetch('/upload-doc', {
@@ -1229,7 +908,7 @@ async function uploadRagDocument() {
         }
 
         if (statusEl) {
-            statusEl.textContent = 'Uploaded ' + data.doc_name + ' (' + data.chunks_inserted + ' chunks)';
+            statusEl.textContent = 'Uploaded “' + data.doc_name + '”. Select it above if needed, then ask your question.';
         }
 
         await loadDocNames();
@@ -1574,11 +1253,6 @@ async function initApp() {
     initThemeToggle();
     createNewChat('Chat 1');
     loadDocNames();
-    refreshLlmMetrics();
-    if (llmMetricsPollingId) {
-        clearInterval(llmMetricsPollingId);
-    }
-    llmMetricsPollingId = setInterval(refreshLlmMetrics, 4000);
     const ragDocNameSelect = document.getElementById('ragDocNameSelect');
     if (ragDocNameSelect) {
         ragDocNameSelect.addEventListener('change', normalizeDocSelection);
@@ -1590,160 +1264,12 @@ async function initApp() {
     updateRetrievalActionsState();
     renderDocChatHistory();
     initImageInteractions();
-
-    const examFocusEl = document.getElementById('examFocus');
-    if (examFocusEl) {
-        const savedExam = localStorage.getItem(EXAM_FOCUS_STORAGE_KEY);
-        if (savedExam && ['general', 'step1', 'step2'].indexOf(savedExam) !== -1) {
-            examFocusEl.value = savedExam;
-        }
-        examFocusEl.addEventListener('change', function() {
-            localStorage.setItem(EXAM_FOCUS_STORAGE_KEY, this.value);
-        });
-    }
 }
 
-// ── Prompt mode ─────────────────────────────────────────────────────────────
-const PROMPT_FLEXIBLE = document.getElementById('systemInstruction')
-    ? document.getElementById('systemInstruction').value
-    : '';
-
-const PROMPT_STRICT = `You are a medical illustration prompt generator operating under STRICT retrieval grounding.
-
-Your task is to convert a user's question and retrieved medical context into a detailed image-generation prompt.
-
-CRITICAL RULE (HIGHEST PRIORITY)
-
-You MUST use ONLY the information present in the retrieved context.
-
-• Do NOT use external medical knowledge
-• Do NOT add missing anatomical structures from your own knowledge
-• Do NOT infer details not explicitly stated in the context
-• Do NOT complete partial knowledge using assumptions
-
-If information is missing, OMIT it.
-
-When learner notes are supplied alongside retrieved context, you may use them ONLY to decide emphasis, layout, and what visually dominates the figure. All factual anatomical, pathophysiological, and clinical content must still come from the retrieved context.
-
----
-
-CORE OBJECTIVE
-
-Generate a precise and detailed medical illustration prompt using ONLY the retrieved content.
-
-The prompt must clearly describe:
-• which structures appear (ONLY from context)
-• how they are related (ONLY if described)
-• what mechanism is shown (ONLY if present)
-• what labels must be included (ONLY from context)
-
----
-
-ANATOMY AND CONTENT CONTROL
-
-Include ONLY anatomical structures explicitly mentioned in the retrieved text.
-
-Do NOT:
-• add upstream or downstream anatomy unless present in context
-• expand beyond the retrieved information
-• generalize beyond what is written
-
----
-
-LABELING (STRICT)
-
-All labels MUST be derived from the retrieved context.
-
-• Use exact or closely matching terminology from the context
-• Do NOT introduce new labels not present in the text
-• Do NOT guess missing structures
-
----
-
-MECHANISM
-
-If the context describes a mechanism:
-
-• include it exactly as described
-• use directional arrows ONLY if flow/process is explicitly mentioned
-
-If no mechanism is described, DO NOT invent one.
-
----
-
-STRUCTURE
-
-Create a clean educational medical diagram including:
-
-• central anatomical illustration (ONLY based on context)
-• highlighted feature if mentioned
-• labels (ONLY from context)
-• optional inset ONLY if supported by context
-
----
-
-VISUAL STYLE
-
-• professional medical textbook style
-• clean white background
-• realistic anatomical rendering
-• clear labels
-
----
-
-STRICT EXCLUSIONS
-
-Do NOT include:
-• patient scenes
-• storytelling
-• inferred anatomy
-• external knowledge
-• hallucinated labels
-
----
-
-OUTPUT FORMAT
-
-Return a single detailed image-generation prompt in natural descriptive language.
-
-The output must be fully grounded in the retrieved context and must not contain any information not present in that context.`;
-
-const PROMPT_MODE_DESCRIPTIONS = {
-    flexible: 'Sends prompt_mode=flexible: augments retrieved context with expert medical knowledge; user message requires the final image prompt to open with the primary teaching point and visual dominance.',
-    strict: 'Sends prompt_mode=strict: the server requires grounding in retrieved documents; missing facts are omitted rather than invented.',
-};
-
-let _currentPromptMode = 'flexible';
-
-function setPromptMode(mode) {
-    _currentPromptMode = mode;
-    const textarea = document.getElementById('systemInstruction');
-    const desc = document.getElementById('promptModeDescription');
-    const flexBtn = document.getElementById('promptModeFlexible');
-    const strictBtn = document.getElementById('promptModeStrict');
-    if (!textarea) return;
-
-    if (mode === 'strict') {
-        textarea.value = PROMPT_STRICT;
-        if (flexBtn) flexBtn.classList.remove('active');
-        if (strictBtn) strictBtn.classList.add('active');
-    } else {
-        textarea.value = PROMPT_FLEXIBLE;
-        if (flexBtn) flexBtn.classList.add('active');
-        if (strictBtn) strictBtn.classList.remove('active');
-    }
-    if (desc) desc.textContent = PROMPT_MODE_DESCRIPTIONS[mode] || '';
-}
-// ─────────────────────────────────────────────────────────────────────────────
-
-window.setPromptMode = setPromptMode;
 window.handleChatChange = handleChatChange;
 window.startNewChat = startNewChat;
-window.generatePrompt = generatePrompt;
 window.generateImage = generateImage;
 window.uploadAndEditImage = uploadAndEditImage;
-window.reRunRetrieval = reRunRetrieval;
-window.reSynthesizePrompt = reSynthesizePrompt;
 window.uploadRagDocument = uploadRagDocument;
 window.askDocsQuestion = askDocsQuestion;
 window.clearDocChatHistory = clearDocChatHistory;

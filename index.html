@@ -26,7 +26,7 @@
                     <h1>AI Medical Image Generator</h1>
                 </div>
                 <p class="subtitle">
-                    Design exam-ready medical illustrations from natural language. Shape a precise prompt, generate images,
+                    Design exam-ready medical illustrations. Write or paste a prompt, generate images,
                     and iterate safely with a clear visual history.
                 </p>
             </div>
@@ -49,228 +49,14 @@
             <div class="layout">
                 <!-- Primary column: authoring + refinement -->
                 <div class="column">
-                    <!-- System Instruction Section -->
-                    <div class="section">
-                        <div class="field-label">
-                            <div class="section-title">System Instruction (How prompts are crafted)</div>
-                            <span>Typically set once per session</span>
-                        </div>
-                        <div class="prompt-mode-toggle">
-                            <button id="promptModeFlexible" class="prompt-mode-btn active" onclick="setPromptMode('flexible')">
-                                Flexible <span class="prompt-mode-badge">default</span>
-                            </button>
-                            <button id="promptModeStrict" class="prompt-mode-btn" onclick="setPromptMode('strict')">
-                                Strict
-                            </button>
-                        </div>
-                        <p id="promptModeDescription" class="prompt-mode-desc">Freely augments retrieved context with expert medical knowledge to produce a complete, detailed illustration prompt.</p>
-                        <div class="exam-controls">
-                            <div class="field-label exam-controls-label">
-                                <div class="section-title">Exam focus</div>
-                                <span>Shapes retrieval &amp; figure emphasis (USMLE)</span>
-                            </div>
-                            <select id="examFocus" class="exam-focus-select" aria-label="Exam focus">
-                                <option value="general">General</option>
-                                <option value="step1" selected>USMLE Step 1</option>
-                                <option value="step2">USMLE Step 2 CK</option>
-                            </select>
-                            <label class="exam-teaching-label" for="examTeachingNotes">Learner notes (optional)</label>
-                            <textarea id="examTeachingNotes" class="exam-teaching-notes" rows="3" placeholder="Primary teaching point; what must dominate the figure; optional compare A vs B…"></textarea>
-                        </div>
-                        <textarea id="systemInstruction" rows="8" placeholder="Enter system instruction here...">You are an expert medical illustration prompt architect for USMLE-oriented study.
-
-Your task is to convert a user’s medical question, optional learner notes, and retrieved medical context into a highly detailed, structured image-generation prompt for a professional medical textbook–style illustration.
-
-The goal is an image that is anatomically accurate when anatomy is involved, clearly labeled, and optimized for a single primary teaching point that matches the selected exam focus (general, USMLE Step 1, or USMLE Step 2 CK).
-
----
-
-EXAM INTENTION (CRITICAL)
-
-Align figure type and emphasis with the exam focus supplied in the user message wrapper:
-
-• USMLE Step 1: prioritize mechanisms, pathways, associations, discriminators, and structures commonly tested; favor schematics, pathways, comparisons, and maps that make the tested relationship obvious.
-
-• USMLE Step 2 CK: prioritize classic presentations, key findings, branch points between diagnoses, next diagnostic or management steps when relevant, and discriminating features; favor clinical-schematic or algorithm-style layouts when they clarify reasoning.
-
-• General: standard high-quality medical education illustration without forcing USMLE-specific framing unless the topic warrants it.
-
-If learner notes specify what must visually dominate, follow them precisely in the generated image prompt.
-
----
-
-CORE REQUIREMENT
-
-The output must NOT be generic.
-
-The prompt must explicitly define:
-• which structures, entities, or stages must be shown
-• how they are connected
-• where the key feature, lesion, decision point, or pathology sits
-• what labels must appear in the image
-
----
-
-OPENING OF THE FINAL IMAGE PROMPT (FOR THE IMAGE MODEL)
-
-The detailed image-generation prompt you produce must begin with 2–3 sentences that state (1) the single primary teaching point and (2) what must dominate the canvas (largest, center, or most salient). Secondary elements must be clearly subordinate. Only after that, describe composition, labels, arrows, and style.
-
----
-
-ANATOMICAL COMPLETENESS
-
-When anatomy applies, include all structures required to understand the concept.
-
-Do NOT omit upstream or downstream structures if they are necessary for understanding relationships.
-
-Maintain correct anatomical hierarchy and spatial relationships.
-
----
-
-LABELING (MANDATORY)
-
-Explicitly list all labels that must appear in the image.
-
-Do NOT say "with labels".
-
-Instead specify actual names to render.
-
-Labels must correspond to visible structures or diagram elements.
-
----
-
-MECHANISM REPRESENTATION
-
-If the concept involves a process:
-
-• describe directional arrows
-• explain what each arrow represents
-• distinguish normal vs abnormal flow if relevant
-
----
-
-STRUCTURED MEDICAL FIGURE
-
-The image must follow a clear educational layout:
-
-• Main diagram (system, region, pathway, or clinical schema as appropriate)
-• Highlighted area of interest (lesion, stenosis, branch point, key finding, etc.)
-• Directional arrows for flow or interaction
-• Optional inset for a simplified mechanism or comparison
-
----
-
-VISUAL STYLE
-
-• professional medical textbook illustration
-• clean white or neutral background
-• realistic or clean schematic rendering as appropriate to the concept
-• clear spacing and visual hierarchy
-• crisp labels placed near structures
-
----
-
-STRICT EXCLUSIONS
-
-Do NOT include:
-• patient portraits
-• emotional or gratuitous clinical scenes
-• storytelling elements
-• irrelevant detail that competes with the primary teaching point
-
-Only include a body outline if it helps anatomical orientation.
-
----
-
-OUTPUT FORMAT
-
-Return a single, detailed image-generation prompt written in natural descriptive language.
-
-The output must be specific enough that the generated image contains:
-• correct structure for the topic
-• correct relationships
-• explicit labels
-• clear mechanism or reasoning flow (if applicable)</textarea>
-                    </div>
-
-                    <!-- User Question Section -->
-                    <div class="section">
-                        <div class="field-label">
-                            <div class="section-title">Your Question / Medical Topic</div>
-                            <span>Required to generate a prompt</span>
-                        </div>
-                        <div class="field-row">
-                            <textarea id="userQuestion" rows="2" placeholder="e.g., Brachial plexus injury patterns; acute asthma exacerbation management branch points; nephrotic vs nephritic features…">Brachial plexus — Erb vs Klumpke</textarea>
-                            <button onclick="generatePrompt()" id="generatePromptBtn">
-                                Generate image prompt
-                            </button>
-                        </div>
-                        <div class="helper-text">Use this to translate a topic or vignette into a polished illustration brief.</div>
-                        <div class="loading" id="promptLoading">
-                            <div class="spinner"></div>
-                            <p>Generating prompt…</p>
-                        </div>
-                        <div class="error" id="promptError"></div>
-
-                        <!-- RAG pipeline details: retrieval settings and content are separate -->
-                        <div class="rag-details-wrapper" id="ragDetailsWrapper">
-                            <details class="rag-details" id="ragSettingsDetails">
-                                <summary class="rag-details-summary">
-                                    <span class="rag-details-title">Retrieval settings</span>
-                                </summary>
-                                <div class="rag-details-inner">
-                                    <div class="rag-search-query-block" id="ragSearchQueryBlock">
-                                        <div class="rag-label">Already present docs</div>
-                                        <select id="ragDocNameSelect" class="rag-doc-select" multiple size="6"></select>
-                                        <div class="rag-doc-help">Select one or more base sources. Add Web Retrieval for web context, or choose NO RAG to disable retrieval.</div>
-
-                                        <div class="rag-label">Upload docs on demand (session only)</div>
-                                        <div class="rag-upload-row">
-                                            <input id="ragUploadFileInput" class="upload-file-input" type="file" accept="application/pdf" />
-                                            <button type="button" class="rag-btn rag-btn-secondary" id="uploadRagDocBtn" onclick="uploadRagDocument()">Upload PDF</button>
-                                        </div>
-                                        <div class="rag-upload-status" id="ragUploadStatus"></div>
-
-                                        <div class="rag-label">Uploaded docs for this session</div>
-                                        <select id="ragSessionDocNameSelect" class="rag-doc-select" multiple size="6"></select>
-                                        <div class="rag-doc-help">Only available in this browser session. Uploaded docs are deleted from MongoDB when session resets or page reloads.</div>
-
-                                        <div class="rag-retrieval-actions">
-                                            <button type="button" class="rag-btn rag-btn-primary" id="reRunRetrievalBtn" onclick="reRunRetrieval()">Retrieve chunks</button>
-                                            <button type="button" class="rag-btn rag-btn-secondary" id="reSynthesizePromptBtn" onclick="reSynthesizePrompt()">Re-synthesize prompt with current context/chunks</button>
-                                        </div>
-                                        <div class="rag-retrieval-loading hidden" id="ragRetrievalLoading">
-                                            <span class="rag-spinner"></span>
-                                            <span>Retrieving…</span>
-                                        </div>
-                                        <div class="rag-retrieval-error hidden" id="ragRetrievalError"></div>
-                                    </div>
-                                </div>
-                            </details>
-                            <details class="rag-details" id="ragDetails">
-                                <summary class="rag-details-summary">
-                                    <span class="rag-details-title">Retrieved content</span>
-                                    <span class="rag-details-badge" id="ragDetailsBadge"></span>
-                                </summary>
-                                <div class="rag-details-inner">
-                                    <div class="rag-chunks-block" id="ragChunksBlock">
-                                        <div class="rag-label">Retrieved chunks (<span id="ragChunksCount">0</span>)</div>
-                                        <div class="rag-chunks-list" id="ragChunksList"></div>
-                                    </div>
-                                    <p class="rag-no-data" id="ragNoData">Retrieved context appears here after prompt generation or Doc chat when RAG is used.</p>
-                                </div>
-                            </details>
-                        </div>
-                    </div>
-
                     <!-- Generated Prompt Section -->
                     <div class="section">
                         <div class="field-label">
                             <div class="section-title">Image Generation Prompt (Editable)</div>
-                            <span>You can fully edit this before generating</span>
+                            <span>Required before generating an image</span>
                         </div>
-                        <div class="helper-text">Tip: Start from the generated prompt above, paste your own, or refine an existing brief.</div>
-                        <textarea id="generatedPrompt" rows="6" placeholder="Enter or paste your image generation prompt here, or use 'Generate image prompt' above..."></textarea>
+                        <div class="helper-text">Tip: Describe the illustration you want, paste a brief from elsewhere, or refine text between generations.</div>
+                        <textarea id="generatedPrompt" rows="6" placeholder="Enter or paste your image generation prompt here…"></textarea>
                         <div class="button-group">
                             <button onclick="generateImage()" id="generateImageBtn">
                                 Generate image
@@ -280,7 +66,7 @@ The output must be specific enough that the generated image contains:
 
                 </div>
 
-                <!-- Secondary column: preview + history + compact metrics -->
+                <!-- Secondary column: preview + history -->
                 <div class="column">
                     <!-- Live image preview -->
                     <div class="section">
@@ -324,35 +110,6 @@ The output must be specific enough that the generated image contains:
                                 Download latest image
                             </button>
                         </div>
-                    </div>
-
-                    <!-- LLM usage metrics (compact footer panel) -->
-                    <div class="section llm-metrics-compact">
-                        <div class="llm-metrics-header-row">
-                            <div class="section-title">LLM Metrics</div>
-                            <div class="llm-total-calls-chip">
-                                Calls: <span id="totalCallsValue">0</span>
-                            </div>
-                        </div>
-
-                        <details class="llm-expand-item" id="tokensMetricsDetails">
-                            <summary class="llm-expand-summary">
-                                <span class="llm-expand-label">Tokens</span>
-                                <span class="llm-expand-total" id="totalTokensValue">0</span>
-                            </summary>
-                            <div class="llm-expand-body">
-                                <div class="llm-breakdown-row">
-                                    <span>GPT</span>
-                                    <span id="gptTokensValue">0</span>
-                                </div>
-                                <div class="llm-breakdown-row">
-                                    <span>Gemini</span>
-                                    <span id="geminiTokensValue">0</span>
-                                </div>
-                            </div>
-                        </details>
-
-                        <div class="llm-metrics-note" id="llmMetricsNote">Token counts for this session.</div>
                     </div>
                 </div>
             </div>
