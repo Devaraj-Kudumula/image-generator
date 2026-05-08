@@ -55,7 +55,7 @@ def register(app):
 
             logger.info("Calling Gemini API...")
             api_start = time.time()
-            filename, image_bytes, image_data_url = image_service.generate_image(
+            filename, image_bytes, image_data_url, gemini_usage = image_service.generate_image(
                 prompt
             )
             api_time = time.time() - api_start
@@ -78,6 +78,7 @@ def register(app):
                 'filename': filename,
                 'image_data_url': image_data_url,
                 'success': True,
+                'usage': {'gemini': gemini_usage or {}},
             })
 
         except ValueError as e:
@@ -168,7 +169,7 @@ def register(app):
             logger.info("Calling Gemini API for image editing...")
             api_start = time.time()
             try:
-                new_filename, edited_bytes, edited_image_data_url = (
+                new_filename, edited_bytes, edited_image_data_url, gemini_usage = (
                     image_service.edit_image(
                         filename, changes, image_data_url or None
                     )
@@ -201,6 +202,7 @@ def register(app):
                 'filename': new_filename,
                 'image_data_url': edited_image_data_url,
                 'success': True,
+                'usage': {'gemini': gemini_usage or {}},
             })
 
         except Exception as e:
@@ -264,6 +266,7 @@ def register(app):
                     flaws_count,
                     iterations,
                     accuracy_trace,
+                    accurate_usage,
                 ) = image_service.get_accurate_image(
                     filename,
                     image_data_url or None,
@@ -299,6 +302,7 @@ def register(app):
                 'flaws_detected': flaws_count,
                 'iterations': iterations,
                 'success': True,
+                'usage': accurate_usage or {},
             }
             if include_trace and accuracy_trace is not None:
                 payload['accuracy_trace'] = accuracy_trace

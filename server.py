@@ -15,7 +15,7 @@ import config
 from app_state import state
 from db import init_mongo
 from clients import init_llm, init_gemini, init_serper
-from routes import main_routes, rag_routes, image_routes
+from routes import main_routes, rag_routes, image_routes, ai_chat_routes
 
 # Configure logging
 logging.basicConfig(
@@ -69,6 +69,7 @@ logger.info("Initializing MongoDB connection...")
 main_routes.register(app)
 rag_routes.register(app)
 image_routes.register(app)
+ai_chat_routes.register(app)
 logger.info("Routes registered")
 
 if __name__ == '__main__':

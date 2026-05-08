@@ -34,9 +34,56 @@ from prompts import (
 logger = logging.getLogger(__name__)
 
 
-def generate_image(prompt: str) -> Tuple[str, bytes, str]:
+def _extract_gemini_usage(response: Any) -> Dict[str, Any]:
+    """Best-effort extraction of token usage from a Gemini GenerateContentResponse."""
+    usage_md = getattr(response, "usage_metadata", None)
+    if usage_md is None:
+        return {}
+    prompt_tokens = (
+        getattr(usage_md, "prompt_token_count", None)
+        or getattr(usage_md, "promptTokenCount", None)
+    )
+    completion_tokens = (
+        getattr(usage_md, "candidates_token_count", None)
+        or getattr(usage_md, "candidatesTokenCount", None)
+    )
+    total_tokens = (
+        getattr(usage_md, "total_token_count", None)
+        or getattr(usage_md, "totalTokenCount", None)
+    )
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "provider": "gemini",
+    }
+
+
+def _extract_openai_usage(response: Any) -> Dict[str, Any]:
+    """Best-effort extraction of token usage from an OpenAI ChatCompletion response."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return {}
+    prompt_tokens = getattr(usage, "prompt_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    total_tokens = getattr(usage, "total_tokens", None)
+    if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "provider": "openai",
+    }
+
+
+def generate_image(prompt: str) -> Tuple[str, bytes, str, Dict[str, Any]]:
     """
-    Generate an image using Gemini. Returns (filename, image_bytes, image_data_url).
+    Generate an image using Gemini. Returns (filename, image_bytes, image_data_url, usage).
+    `usage` is a dict with prompt_tokens / completion_tokens / total_tokens keys
+    (from Gemini's usage_metadata). Empty dict if not available.
     Raises on missing client or API errors.
     """
     if not state.gemini_client:
@@ -46,6 +93,7 @@ def generate_image(prompt: str) -> Tuple[str, bytes, str]:
         model="gemini-3-pro-image-preview",
         contents=[prompt],
     )
+    usage = _extract_gemini_usage(response)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'image_{timestamp}.png'
@@ -71,7 +119,7 @@ def generate_image(prompt: str) -> Tuple[str, bytes, str]:
             pass
 
     logger.info("Image stored (in-memory); filename=%s", filename)
-    return (filename, image_bytes, image_data_url)
+    return (filename, image_bytes, image_data_url, usage)
 
 
 def load_image_for_edit(
@@ -142,9 +190,10 @@ def edit_image(
     trace_step_id: Optional[str] = None,
     trace_title: Optional[str] = None,
     preserve_visual_identity: bool = False,
-) -> Tuple[str, bytes, str]:
+) -> Tuple[str, bytes, str, Dict[str, Any]]:
     """
-    Edit an existing image with Gemini. Returns (new_filename, edited_bytes, edited_data_url).
+    Edit an existing image with Gemini.
+    Returns (new_filename, edited_bytes, edited_data_url, usage).
     """
     if not state.gemini_client:
         raise ValueError("Gemini client not initialized")
@@ -163,6 +212,7 @@ def edit_image(
         )
     except Exception as api_error:
         raise ValueError(f"Error calling Gemini API: {str(api_error)}") from api_error
+    usage = _extract_gemini_usage(response)
 
     try:
         edited_bytes = extract_png_bytes_from_gemini_response(response)
@@ -213,7 +263,7 @@ def edit_image(
                 },
             }
         )
-    return (new_filename, edited_bytes, edited_image_data_url)
+    return (new_filename, edited_bytes, edited_image_data_url, usage)
 
 
 def get_image_bytes(filename: str) -> Optional[bytes]:
@@ -293,8 +343,8 @@ def _detect_flaws_via_openai(
     trace: Optional[List[Dict[str, Any]]] = None,
     trace_step_id: str = "openai-vision",
     trace_title: str = "OpenAI vision",
-) -> str:
-    """Call OpenAI vision model and return raw text response."""
+) -> Tuple[str, Dict[str, Any]]:
+    """Call OpenAI vision model and return (raw text response, usage dict)."""
     response = oa_client.chat.completions.create(
         model=model,
         temperature=0,
@@ -311,6 +361,7 @@ def _detect_flaws_via_openai(
         max_completion_tokens=2000,
     )
     text = response.choices[0].message.content.strip()
+    usage = _extract_openai_usage(response)
     logger.info("--- [%s] INPUT ---\n[system]: %s\n\n[user]: %s", tag, system_prompt, user_prompt)
     logger.info("--- [%s] OUTPUT ---\n%s", tag, text)
     if trace is not None:
@@ -328,7 +379,7 @@ def _detect_flaws_via_openai(
                 "output": {"text": text},
             }
         )
-    return text
+    return text, usage
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +391,7 @@ def get_accurate_image(
     image_data_url: Optional[str] = None,
     original_prompt: Optional[str] = None,
     collect_trace: bool = False,
-) -> Tuple[str, bytes, str, int, int, Optional[List[Dict[str, Any]]]]:
+) -> Tuple[str, bytes, str, int, int, Optional[List[Dict[str, Any]]], Dict[str, Any]]:
     """
     Two-stage accuracy pipeline:
 
@@ -378,6 +429,20 @@ def get_accurate_image(
     oa_client = openai_lib.OpenAI(api_key=state.openai_api_key)
     trace: Optional[List[Dict[str, Any]]] = [] if collect_trace else None
 
+    aggregated_usage: Dict[str, Dict[str, int]] = {
+        "openai": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "gemini": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+    def _accumulate(provider: str, usage: Dict[str, Any]) -> None:
+        if not usage:
+            return
+        bucket = aggregated_usage[provider]
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)):
+                bucket[key] += int(value)
+
     intent_snippet = (
         INTENT_SUFFIX_TEMPLATE.format(original_prompt=original_prompt.strip())
         if original_prompt and original_prompt.strip()
@@ -397,7 +462,7 @@ def get_accurate_image(
         )
     )
 
-    structural_flaw_text = _detect_flaws_via_openai(
+    structural_flaw_text, _usage_a = _detect_flaws_via_openai(
         oa_client,
         STRUCTURAL_DETECTION_SYSTEM,
         structural_detection_prompt,
@@ -407,6 +472,7 @@ def get_accurate_image(
         trace_step_id="structural-detection",
         trace_title="Structural flaw detection (OpenAI vision)",
     )
+    _accumulate("openai", _usage_a)
 
     # -----------------------------------------------------------------------
     # Stage B — OpenAI detects label & text flaws
@@ -421,7 +487,7 @@ def get_accurate_image(
         )
     )
 
-    label_flaw_text = _detect_flaws_via_openai(
+    label_flaw_text, _usage_b = _detect_flaws_via_openai(
         oa_client,
         LABEL_DETECTION_SYSTEM,
         label_detection_prompt,
@@ -431,6 +497,7 @@ def get_accurate_image(
         trace_step_id="label-detection",
         trace_title="Label & annotation flaw detection (OpenAI vision)",
     )
+    _accumulate("openai", _usage_b)
 
     # -----------------------------------------------------------------------
     # Parse flaw lists
@@ -477,7 +544,7 @@ def get_accurate_image(
     if not structural_flaws and not label_flaws:
         logger.info("No flaws detected — returning original as accurate")
         fn, bs, du, fc, it = _return_original_as_accurate()
-        return (fn, bs, du, fc, it, trace)
+        return (fn, bs, du, fc, it, trace, aggregated_usage)
 
     # -----------------------------------------------------------------------
     # OpenAI generates structural correction prompts (batched, 3 flaws each)
@@ -513,6 +580,7 @@ def get_accurate_image(
             max_completion_tokens=500,
         )
         generated_prompt = openai_prompt_gen_response.choices[0].message.content.strip()
+        _accumulate("openai", _extract_openai_usage(openai_prompt_gen_response))
         logger.info("Generated structural correction prompt %d/%d:\n%s", i + 1, num_structural_passes, generated_prompt)
         if trace is not None:
             trace.append(
@@ -556,6 +624,7 @@ def get_accurate_image(
         max_completion_tokens=500,
     )
     label_polish_prompt = label_polish_gen_response.choices[0].message.content.strip()
+    _accumulate("openai", _extract_openai_usage(label_polish_gen_response))
     logger.info("Generated label polish prompt:\n%s", label_polish_prompt)
     if trace is not None:
         trace.append(
@@ -594,7 +663,7 @@ def get_accurate_image(
             correction_prompt[:120],
         )
         pass_kind = "label-polish" if is_last else "structural"
-        current_filename, current_bytes, current_data_url = edit_image(
+        current_filename, current_bytes, current_data_url, _gem_usage = edit_image(
             current_filename,
             correction_prompt,
             current_data_url,
@@ -605,6 +674,7 @@ def get_accurate_image(
             ),
             preserve_visual_identity=True,
         )
+        _accumulate("gemini", _gem_usage)
 
     if trace is not None:
         trace.append(
@@ -631,4 +701,5 @@ def get_accurate_image(
         total_flaws,
         len(correction_prompts),
         trace,
+        aggregated_usage,
     )

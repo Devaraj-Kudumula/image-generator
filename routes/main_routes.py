@@ -27,6 +27,11 @@ def register(app):
         logger.info("Serving upload_edit.html")
         return send_from_directory('.', 'upload_edit.html')
 
+    @app.route('/ai-chat')
+    def ai_chat():
+        logger.info("Serving ai_chat.html")
+        return send_from_directory('.', 'ai_chat.html')
+
     @app.route('/health', methods=['GET'])
     def health():
         """Health check endpoint for monitoring"""
