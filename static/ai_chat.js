@@ -1,8 +1,8 @@
 /* AI Chat → Image Generation page.
  *
  * Standalone module — does not depend on app.js.
- * Maintains multiple chat sessions; each session has its own message history,
- * generated images, and LLM metrics (split GPT vs Gemini).
+ * Maintains multiple chat sessions; each session has its own message history
+ * and generated images.
  */
 
 (function() {
@@ -38,14 +38,6 @@
     let nextMessageId = 1;
     let nextImageId = 1;
 
-    function makeMetrics() {
-        return {
-            calls: 0,
-            gptTokens: 0,
-            geminiTokens: 0,
-        };
-    }
-
     function createSession(name) {
         const id = nextSessionId++;
         const session = {
@@ -53,7 +45,6 @@
             name: name || ('Chat ' + id),
             messages: [],
             images: [],
-            metrics: makeMetrics(),
         };
         sessions.push(session);
         activeSessionId = id;
@@ -81,39 +72,6 @@
             activeSessionId = sessions[Math.max(0, idx - 1)].id;
         }
         renderAll();
-    }
-
-    // ---------------- Token accumulation ----------------
-    function addGptUsage(usage) {
-        const session = getActiveSession();
-        if (!session || !usage) return;
-        const total = Number(usage.total_tokens || 0)
-            || (Number(usage.prompt_tokens || 0) + Number(usage.completion_tokens || 0));
-        if (total > 0) session.metrics.gptTokens += total;
-        session.metrics.calls += 1;
-    }
-
-    function addGeminiUsage(usage) {
-        const session = getActiveSession();
-        if (!session || !usage) return;
-        const total = Number(usage.total_tokens || 0)
-            || (Number(usage.prompt_tokens || 0) + Number(usage.completion_tokens || 0));
-        if (total > 0) session.metrics.geminiTokens += total;
-        session.metrics.calls += 1;
-    }
-
-    function addAccurateUsage(usageBundle) {
-        // /get-accurate returns { openai: {...}, gemini: {...} } — both prepaid
-        // as a single user-initiated call so we increment calls once.
-        const session = getActiveSession();
-        if (!session || !usageBundle) return;
-        const oa = usageBundle.openai || {};
-        const ge = usageBundle.gemini || {};
-        const oaTotal = Number(oa.total_tokens || 0);
-        const geTotal = Number(ge.total_tokens || 0);
-        if (oaTotal > 0) session.metrics.gptTokens += oaTotal;
-        if (geTotal > 0) session.metrics.geminiTokens += geTotal;
-        session.metrics.calls += 1;
     }
 
     // ---------------- Rendering: sidebar ----------------
@@ -274,6 +232,28 @@
                 : 'No image generated yet';
         }
 
+        const latestPromptWrap = document.getElementById('aiLatestViewPromptWrap');
+        const latestPromptBtn = document.getElementById('aiLatestViewPromptBtn');
+        if (latestPromptWrap && latestPromptBtn) {
+            const p = latest && latest.prompt ? String(latest.prompt).trim() : '';
+            if (p) {
+                latestPromptWrap.hidden = false;
+                latestPromptBtn.textContent = latest.kind === 'refined_prompt'
+                    ? 'View refined prompt'
+                    : 'View generation prompt';
+                latestPromptBtn.onclick = function() {
+                    openPromptModal(
+                        latest.kind === 'refined_prompt'
+                            ? 'Refined generation prompt'
+                            : 'Generation prompt',
+                        p
+                    );
+                };
+            } else {
+                latestPromptWrap.hidden = true;
+            }
+        }
+
         if (controls) {
             controls.hidden = !latest;
         }
@@ -289,13 +269,34 @@
                     const el = document.createElement('img');
                     el.src = img.imageDataUrl || img.imageUrl;
                     el.alt = 'Generated image ' + (idx + 1);
-                    el.onclick = () => openImageFullscreen(el.src, img.prompt);
+                    el.onclick = function() {
+                        openImageFullscreen(el.src, img.prompt, img.kind);
+                    };
                     item.appendChild(el);
                     const cap = document.createElement('div');
                     cap.className = 'ai-chat-image-caption';
                     const promptText = img.prompt || '';
                     cap.textContent = promptText.slice(0, 80) + (promptText.length > 80 ? '…' : '');
                     item.appendChild(cap);
+                    const pTrim = promptText.trim();
+                    if (pTrim) {
+                        const vp = document.createElement('button');
+                        vp.type = 'button';
+                        vp.className = 'ai-view-prompt-btn';
+                        vp.textContent = img.kind === 'refined_prompt'
+                            ? 'View refined prompt'
+                            : 'View prompt';
+                        vp.onclick = function(e) {
+                            e.stopPropagation();
+                            openPromptModal(
+                                img.kind === 'refined_prompt'
+                                    ? 'Refined generation prompt'
+                                    : 'Generation prompt',
+                                pTrim
+                            );
+                        };
+                        item.appendChild(vp);
+                    }
                     grid.appendChild(item);
                 });
             }
@@ -304,34 +305,6 @@
         if (emptyMsg) {
             emptyMsg.style.display = (session && session.images.length) ? 'none' : 'block';
         }
-    }
-
-    // ---------------- Rendering: metrics ----------------
-    function formatNumber(n) {
-        const num = Number(n) || 0;
-        return num.toLocaleString();
-    }
-
-    function renderMetrics() {
-        const session = getActiveSession();
-        const m = session ? session.metrics : null;
-        const set = (id, value) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = value;
-        };
-
-        if (!m) {
-            set('aiMetricCalls', '0');
-            set('aiMetricTotalTokens', '0');
-            set('aiMetricGptTokens', '0');
-            set('aiMetricGeminiTokens', '0');
-            return;
-        }
-
-        set('aiMetricCalls', String(m.calls));
-        set('aiMetricGptTokens', formatNumber(m.gptTokens));
-        set('aiMetricGeminiTokens', formatNumber(m.geminiTokens));
-        set('aiMetricTotalTokens', formatNumber(m.gptTokens + m.geminiTokens));
     }
 
     function renderHeader() {
@@ -354,7 +327,6 @@
         renderHeader();
         renderMessages();
         renderImages();
-        renderMetrics();
     }
 
     // ---------------- Send message ----------------
@@ -404,14 +376,11 @@
                 throw new Error(data.error || 'Failed to get answer');
             }
 
-            const metrics = data.metrics || {};
             session.messages.push({
                 id: nextMessageId++,
                 role: 'assistant',
                 content: String(data.answer || 'No answer generated.'),
-                metrics,
             });
-            addGptUsage(metrics);
             renderAll();
         } catch (error) {
             session.messages.push({
@@ -493,11 +462,7 @@
                 fromMessageId: messageId,
                 kind: 'generated',
             });
-            const usage = (data.usage || {}).gemini || {};
-            addGeminiUsage(usage);
-
             renderImages();
-            renderMetrics();
             renderHeader();
         } catch (error) {
             showImageError('Error: ' + (error.message || 'Unknown error'));
@@ -553,12 +518,9 @@
                 kind: 'edited',
                 parentImageId: latest.id,
             });
-            const usage = (data.usage || {}).gemini || {};
-            addGeminiUsage(usage);
 
             if (ta) ta.value = '';
             renderImages();
-            renderMetrics();
             renderHeader();
         } catch (error) {
             showImageError('Error: ' + (error.message || 'Unknown error'));
@@ -576,8 +538,10 @@
 
         const accurateBtn = document.getElementById('aiGetAccurateBtn');
         const accurateTraceBtn = document.getElementById('aiGetAccurateTraceBtn');
+        const refinedBtn = document.getElementById('aiRefinedPromptImageBtn');
         if (accurateBtn) accurateBtn.disabled = true;
         if (accurateTraceBtn) accurateTraceBtn.disabled = true;
+        if (refinedBtn) refinedBtn.disabled = true;
         showImageActionLoading(includeTrace ? 'Get Accurate (with log)…' : 'Get Accurate — refining…');
         clearImageError();
 
@@ -616,10 +580,7 @@
                 accuracyTrace: includeTrace ? (data.accuracy_trace || null) : null,
                 parentImageId: latest.id,
             });
-            addAccurateUsage(data.usage || {});
-
             renderImages();
-            renderMetrics();
             renderHeader();
         } catch (error) {
             showImageError('Error: ' + (error.message || 'Unknown error'));
@@ -627,6 +588,62 @@
             hideImageActionLoading();
             if (accurateBtn) accurateBtn.disabled = false;
             if (accurateTraceBtn) accurateTraceBtn.disabled = false;
+            if (refinedBtn) refinedBtn.disabled = false;
+        }
+    }
+
+    // ---------------- Refined prompt image (vision QA → GPT prompt → Gemini) ----------------
+    async function refinedPromptImageLatest() {
+        const session = getActiveSession();
+        const latest = getLatestImage();
+        if (!session || !latest) return;
+
+        const accurateBtn = document.getElementById('aiGetAccurateBtn');
+        const accurateTraceBtn = document.getElementById('aiGetAccurateTraceBtn');
+        const refinedBtn = document.getElementById('aiRefinedPromptImageBtn');
+        if (accurateBtn) accurateBtn.disabled = true;
+        if (accurateTraceBtn) accurateTraceBtn.disabled = true;
+        if (refinedBtn) refinedBtn.disabled = true;
+        showImageActionLoading('Refined prompt — analyzing image, rewriting prompt, generating…');
+        clearImageError();
+
+        try {
+            const filename = latest.filename
+                || (latest.imageUrl ? latest.imageUrl.split('/').pop() : null);
+            const response = await fetch('/refined-prompt-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename,
+                    image_data_url: latest.imageDataUrl || latest.imageUrl,
+                    original_prompt: latest.prompt || '',
+                    session_id: 'ai_chat_' + session.id,
+                }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed refined prompt regeneration');
+
+            const refined = String(data.refined_prompt || '').trim();
+            session.images.push({
+                id: nextImageId++,
+                prompt: refined || latest.prompt || '',
+                imageUrl: data.image_url || null,
+                imageDataUrl: data.image_data_url || null,
+                filename: data.filename || null,
+                createdAt: Date.now(),
+                kind: 'refined_prompt',
+                meta: 'Refined prompt image (vision QA → GPT → Gemini)',
+                parentImageId: latest.id,
+            });
+            renderImages();
+            renderHeader();
+        } catch (error) {
+            showImageError('Error: ' + (error.message || 'Unknown error'));
+        } finally {
+            hideImageActionLoading();
+            if (accurateBtn) accurateBtn.disabled = false;
+            if (accurateTraceBtn) accurateTraceBtn.disabled = false;
+            if (refinedBtn) refinedBtn.disabled = false;
         }
     }
 
@@ -647,17 +664,38 @@
     }
 
     // ---------------- Fullscreen overlay ----------------
-    function openImageFullscreen(src, captionText) {
+    function openImageFullscreen(src, fullPrompt, imageKind) {
         const overlay = document.getElementById('imageFullscreenOverlay');
         const img = document.getElementById('imageFullscreen');
         const caption = document.getElementById('imageFullscreenCaption');
+        const viewBtn = document.getElementById('aiFullscreenViewPromptBtn');
         if (!overlay || !img || !src) return;
         img.src = src;
+        const p = fullPrompt ? String(fullPrompt).trim() : '';
         if (caption) {
-            const text = captionText
-                ? ('Prompt: ' + captionText.slice(0, 140) + (captionText.length > 140 ? '…' : ''))
+            const text = p
+                ? ('Prompt: ' + p.slice(0, 140) + (p.length > 140 ? '…' : ''))
                 : 'Generated image';
             caption.textContent = text;
+        }
+        if (viewBtn) {
+            if (p) {
+                viewBtn.hidden = false;
+                viewBtn.textContent = imageKind === 'refined_prompt'
+                    ? 'View refined prompt'
+                    : 'View full prompt';
+                viewBtn.onclick = function() {
+                    openPromptModal(
+                        imageKind === 'refined_prompt'
+                            ? 'Refined generation prompt'
+                            : 'Generation prompt',
+                        p
+                    );
+                };
+            } else {
+                viewBtn.hidden = true;
+                viewBtn.onclick = null;
+            }
         }
         overlay.classList.add('active');
         overlay.setAttribute('aria-hidden', 'false');
@@ -670,6 +708,43 @@
         overlay.classList.remove('active');
         overlay.setAttribute('aria-hidden', 'true');
         document.body.style.overflow = '';
+        const pm = document.getElementById('aiPromptModalOverlay');
+        if (pm && pm.classList.contains('active')) {
+            document.body.style.overflow = 'hidden';
+        }
+    }
+
+    // ---------------- Prompt text modal (full generation / refined prompt) ----------------
+    function openPromptModal(title, fullText) {
+        const overlay = document.getElementById('aiPromptModalOverlay');
+        const titleEl = document.getElementById('aiPromptModalTitle');
+        const bodyEl = document.getElementById('aiPromptModalBody');
+        if (!overlay || !titleEl || !bodyEl) return;
+        titleEl.textContent = title || 'Prompt';
+        bodyEl.textContent = fullText || '';
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closePromptModal() {
+        const overlay = document.getElementById('aiPromptModalOverlay');
+        if (!overlay) return;
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+        const fs = document.getElementById('imageFullscreenOverlay');
+        if (!fs || !fs.classList.contains('active')) {
+            document.body.style.overflow = '';
+        }
+    }
+
+    function copyPromptModalBody() {
+        const bodyEl = document.getElementById('aiPromptModalBody');
+        if (!bodyEl) return;
+        const t = bodyEl.textContent || '';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(t).catch(function() {});
+        }
     }
 
     // ---------------- Clear messages in current chat ----------------
@@ -680,7 +755,6 @@
         if (!confirm('Clear all messages and images in this chat?')) return;
         session.messages = [];
         session.images = [];
-        session.metrics = makeMetrics();
         renderAll();
     }
 
@@ -751,6 +825,8 @@
         if (accurateBtn) accurateBtn.addEventListener('click', () => getAccurateLatest(false));
         const accurateTraceBtn = document.getElementById('aiGetAccurateTraceBtn');
         if (accurateTraceBtn) accurateTraceBtn.addEventListener('click', () => getAccurateLatest(true));
+        const refinedPromptBtn = document.getElementById('aiRefinedPromptImageBtn');
+        if (refinedPromptBtn) refinedPromptBtn.addEventListener('click', refinedPromptImageLatest);
         const downloadBtn = document.getElementById('aiDownloadBtn');
         if (downloadBtn) downloadBtn.addEventListener('click', downloadLatest);
 
@@ -762,16 +838,37 @@
                 if (e.target === overlay) closeImageFullscreen();
             });
         }
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeImageFullscreen();
+        document.addEventListener('keydown', function(e) {
+            if (e.key !== 'Escape') return;
+            const promptOv = document.getElementById('aiPromptModalOverlay');
+            if (promptOv && promptOv.classList.contains('active')) {
+                closePromptModal();
+                return;
+            }
+            closeImageFullscreen();
         });
+
+        const promptModalOverlay = document.getElementById('aiPromptModalOverlay');
+        const promptModalClose = document.getElementById('aiPromptModalClose');
+        const promptModalCopy = document.getElementById('aiPromptModalCopy');
+        if (promptModalClose) promptModalClose.addEventListener('click', closePromptModal);
+        if (promptModalCopy) promptModalCopy.addEventListener('click', copyPromptModalBody);
+        if (promptModalOverlay) {
+            promptModalOverlay.addEventListener('click', function(e) {
+                if (e.target === promptModalOverlay) closePromptModal();
+            });
+        }
 
         const previewImg = document.getElementById('aiImagePreview');
         if (previewImg) {
-            previewImg.addEventListener('click', () => {
+            previewImg.addEventListener('click', function() {
                 if (previewImg.classList.contains('visible')) {
                     const last = getLatestImage();
-                    openImageFullscreen(previewImg.src, last ? last.prompt : '');
+                    openImageFullscreen(
+                        previewImg.src,
+                        last ? last.prompt : '',
+                        last ? last.kind : undefined
+                    );
                 }
             });
         }

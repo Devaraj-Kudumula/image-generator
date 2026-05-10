@@ -812,8 +812,8 @@ async function getAccurateImage(entryIndex, options) {
     successDiv.classList.remove('active');
 
     const userLine = includeTrace
-        ? 'Get Accurate (with step log): detecting and correcting flaws…'
-        : 'Get Accurate: detecting and correcting label/arrow flaws…';
+        ? 'Get Accurate (with step log): checking illustration accuracy and fixing issues…'
+        : 'Get Accurate: checking anatomy, view, labels, and pedagogy — fixing issues…';
     addConversationEntry({ role: 'user', text: userLine, type: 'get_accurate_request' });
 
     try {
@@ -848,7 +848,7 @@ async function getAccurateImage(entryIndex, options) {
             }
             addConversationEntry(assistantEntry);
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
-            showSuccess('imageSuccess', flaws > 0 ? `Accuracy refined: ${flaws} flaw(s) corrected.` : 'No flaws found — image is accurate.');
+            showSuccess('imageSuccess', flaws > 0 ? `Accuracy refined: ${flaws} issue(s) corrected.` : 'No issues found — image looks educationally sound.');
         } else {
             showError('imageError', data.error || 'Failed to refine image accuracy');
             const chat = getActiveChat();

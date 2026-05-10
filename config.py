@@ -21,6 +21,29 @@ else:
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GOOGLE_API_KEY = os.getenv('GOOGLE_GENERATIVE_AI_API_KEY')
 
+# OpenAI chat models (override via environment for newer API releases)
+OPENAI_RAG_MODEL = os.getenv('OPENAI_RAG_MODEL', 'gpt-4o')
+OPENAI_RAG_TEMPERATURE = float(os.getenv('OPENAI_RAG_TEMPERATURE', '0.2'))
+OPENAI_RAG_MAX_OUTPUT = int(os.getenv('OPENAI_RAG_MAX_OUTPUT', '2048'))
+
+# Standalone AI chat (ai_chat page): strongest text model by default; trim if env unset for older accounts.
+OPENAI_CONVERSATION_MODEL = os.getenv('OPENAI_CONVERSATION_MODEL', 'gpt-5.5')
+OPENAI_CONVERSATION_TEMPERATURE = float(os.getenv('OPENAI_CONVERSATION_TEMPERATURE', '0.7'))
+OPENAI_CONVERSATION_MAX_OUTPUT = int(os.getenv('OPENAI_CONVERSATION_MAX_OUTPUT', '8192'))
+# Approximate input token budget for history + system (completion budget is separate via max_tokens).
+OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS = int(
+    os.getenv('OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS', '200000')
+)
+OPENAI_CONVERSATION_REQUEST_TIMEOUT = int(os.getenv('OPENAI_CONVERSATION_REQUEST_TIMEOUT', '180'))
+
+# Refined-prompt regeneration (vision QA → text refinement → new Gemini image)
+OPENAI_REFINED_REGEN_VISION_MODEL = os.getenv(
+    'OPENAI_REFINED_REGEN_VISION_MODEL', 'gpt-5.4'
+)
+OPENAI_REFINED_REGEN_TEXT_MODEL = os.getenv(
+    'OPENAI_REFINED_REGEN_TEXT_MODEL', 'gpt-5.5'
+)
+
 # MongoDB
 MONGODB_URI = os.getenv(
     'MONGODB_URI',

@@ -30,6 +30,10 @@ from prompts import (
     STRUCTURAL_CORRECTION_SYSTEM,
     LABEL_POLISH_SYSTEM,
     INTENT_SUFFIX_TEMPLATE,
+    REFINED_REGEN_VISION_SYSTEM,
+    REFINED_REGEN_VISION_USER,
+    REFINED_REGEN_VISION_ORIGINAL_PROMPT_SUFFIX,
+    REFINED_REGEN_PROMPT_SYSTEM,
 )
 logger = logging.getLogger(__name__)
 
@@ -294,6 +298,17 @@ def _store_image_bytes(prefix: str, image_bytes: bytes) -> Tuple[str, str]:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+def _openai_chat_temperature_kwargs(model: str) -> Dict[str, Any]:
+    """
+    gpt-5.x rejects temperature=0 (and other non-default values); only the API
+    default is allowed. Omit the parameter so OpenAI uses model default.
+    """
+    m = (model or "").strip().lower()
+    if m.startswith("gpt-5"):
+        return {}
+    return {"temperature": 0}
+
+
 _NO_FLAW_PATTERN = re.compile(
     r'no[_ ]flaws?[_ ]detected|no errors? found|no inaccuracies|looks? correct|'
     r'no issues? found|everything (is |looks? )?correct',
@@ -347,7 +362,7 @@ def _detect_flaws_via_openai(
     """Call OpenAI vision model and return (raw text response, usage dict)."""
     response = oa_client.chat.completions.create(
         model=model,
-        temperature=0,
+        **_openai_chat_temperature_kwargs(model),
         messages=[
             {"role": "system", "content": system_prompt},
             {
@@ -360,7 +375,8 @@ def _detect_flaws_via_openai(
         ],
         max_completion_tokens=2000,
     )
-    text = response.choices[0].message.content.strip()
+    raw = response.choices[0].message.content
+    text = (raw or "").strip()
     usage = _extract_openai_usage(response)
     logger.info("--- [%s] INPUT ---\n[system]: %s\n\n[user]: %s", tag, system_prompt, user_prompt)
     logger.info("--- [%s] OUTPUT ---\n%s", tag, text)
@@ -383,7 +399,7 @@ def _detect_flaws_via_openai(
 
 
 # ---------------------------------------------------------------------------
-# get_accurate_image  (structural accuracy first, label polish as final pass)
+# get_accurate_image  (illustration correctness first, annotation polish as final pass)
 # ---------------------------------------------------------------------------
 
 def get_accurate_image(
@@ -396,13 +412,14 @@ def get_accurate_image(
     Two-stage accuracy pipeline:
 
     DETECTION  — Two OpenAI vision calls:
-      Stage A: Structural flaws (anatomy, proportions, topology)
-      Stage B: Label/text flaws (correct names, arrow targets, legibility)
+      Stage A: Medical illustration correctness without text fixes — anatomy, view vs. brief,
+               topology, misleading placement for learners
+      Stage B: Labels and annotations — names, arrow targets, consistency with prompt, legibility
 
     CORRECTION — Sequential Gemini passes in this order:
-      Pass 1..N : Structural fixes  (OpenAI-generated correction prompts, batched 3 flaws each)
-      Pass N+1  : Label polish      (OpenAI-generated, always the final pass — fixes label
-                                     errors AND cleans up any text distortion from earlier passes)
+      Pass 1..N : Structure/view fixes  (OpenAI-generated correction prompts, batched 3 flaws each)
+      Pass N+1  : Label polish          (OpenAI-generated, always the final pass — fixes annotation
+                                         issues AND cleans up any text distortion from earlier passes)
 
     OpenAI generates every correction prompt from the detected flaws + original intent,
     so Gemini always receives a high-quality, targeted instruction rather than a raw flaw dump.
@@ -450,7 +467,7 @@ def get_accurate_image(
     )
 
     # -----------------------------------------------------------------------
-    # Stage A — OpenAI detects structural flaws
+    # Stage A — OpenAI detects illustration correctness (structure, view, pedagogy)
     # -----------------------------------------------------------------------
     structural_detection_prompt = (
         STRUCTURAL_DETECTION_USER
@@ -470,12 +487,12 @@ def get_accurate_image(
         tag="structural-detection",
         trace=trace,
         trace_step_id="structural-detection",
-        trace_title="Structural flaw detection (OpenAI vision)",
+        trace_title="Illustration correctness — structure & view (OpenAI vision)",
     )
     _accumulate("openai", _usage_a)
 
     # -----------------------------------------------------------------------
-    # Stage B — OpenAI detects label & text flaws
+    # Stage B — OpenAI detects label & annotation flaws
     # -----------------------------------------------------------------------
     label_detection_prompt = (
         LABEL_DETECTION_USER
@@ -495,7 +512,7 @@ def get_accurate_image(
         tag="label-detection",
         trace=trace,
         trace_step_id="label-detection",
-        trace_title="Label & annotation flaw detection (OpenAI vision)",
+        trace_title="Labels & annotations vs. structures & brief (OpenAI vision)",
     )
     _accumulate("openai", _usage_b)
 
@@ -512,7 +529,7 @@ def get_accurate_image(
     )
 
     logger.info(
-        "Detected %d structural flaw(s) and %d label flaw(s)",
+        "Detected %d illustration flaw(s) and %d annotation flaw(s)",
         len(structural_flaws), len(label_flaws),
     )
 
@@ -547,12 +564,12 @@ def get_accurate_image(
         return (fn, bs, du, fc, it, trace, aggregated_usage)
 
     # -----------------------------------------------------------------------
-    # OpenAI generates structural correction prompts (batched, 3 flaws each)
+    # OpenAI generates illustration-correction prompts (batched, 3 flaws each)
     # -----------------------------------------------------------------------
     max_structural_flaws = MAX_STRUCTURAL_ITERATIONS * MAX_FLAWS_PER_PROMPT
     if len(structural_flaws) > max_structural_flaws:
         logger.info(
-            "Capping structural flaws from %d to %d",
+            "Capping illustration flaws from %d to %d",
             len(structural_flaws), max_structural_flaws,
         )
         structural_flaws = structural_flaws[:max_structural_flaws]
@@ -567,27 +584,29 @@ def get_accurate_image(
     for i in range(num_structural_passes):
         batch = structural_flaws[i * MAX_FLAWS_PER_PROMPT: (i + 1) * MAX_FLAWS_PER_PROMPT]
         flaw_list = "\n".join(f"- {f}" for f in batch)
-        structural_user_msg = f"Structural flaws to fix:\n{flaw_list}" + intent_snippet
+        structural_user_msg = f"Illustration correctness issues to fix:\n{flaw_list}" + intent_snippet
 
         # Ask OpenAI to turn the raw flaw list into a precise Gemini edit instruction
+        _corr_model = "gpt-5.4"
         openai_prompt_gen_response = oa_client.chat.completions.create(
-            model="gpt-5.4",
-            temperature=0,
+            model=_corr_model,
+            **_openai_chat_temperature_kwargs(_corr_model),
             messages=[
                 {"role": "system", "content": STRUCTURAL_CORRECTION_SYSTEM},
                 {"role": "user", "content": structural_user_msg},
             ],
             max_completion_tokens=500,
         )
-        generated_prompt = openai_prompt_gen_response.choices[0].message.content.strip()
+        _gp = openai_prompt_gen_response.choices[0].message.content
+        generated_prompt = (_gp or "").strip()
         _accumulate("openai", _extract_openai_usage(openai_prompt_gen_response))
-        logger.info("Generated structural correction prompt %d/%d:\n%s", i + 1, num_structural_passes, generated_prompt)
+        logger.info("Generated illustration correction prompt %d/%d:\n%s", i + 1, num_structural_passes, generated_prompt)
         if trace is not None:
             trace.append(
                 {
                     "id": f"structural-prompt-gen-{i + 1}",
                     "title": (
-                        f"OpenAI: structural edit instruction "
+                        f"OpenAI: illustration correction instruction "
                         f"({i + 1}/{num_structural_passes})"
                     ),
                     "provider": "openai",
@@ -609,21 +628,23 @@ def get_accurate_image(
     label_flaw_summary = (
         "\n".join(f"- {f}" for f in label_flaws)
         if label_flaws
-        else "No specific label errors detected, but re-render all text cleanly."
+        else "No specific annotation issues detected, but re-render all text cleanly."
     )
 
-    label_polish_user = f"Label/annotation flaws to fix:\n{label_flaw_summary}" + intent_snippet
+    label_polish_user = f"Label and annotation issues to fix:\n{label_flaw_summary}" + intent_snippet
 
+    _polish_model = "gpt-5.4"
     label_polish_gen_response = oa_client.chat.completions.create(
-        model="gpt-5.4",
-        temperature=0,
+        model=_polish_model,
+        **_openai_chat_temperature_kwargs(_polish_model),
         messages=[
             {"role": "system", "content": LABEL_POLISH_SYSTEM},
             {"role": "user", "content": label_polish_user},
         ],
         max_completion_tokens=500,
     )
-    label_polish_prompt = label_polish_gen_response.choices[0].message.content.strip()
+    _lp = label_polish_gen_response.choices[0].message.content
+    label_polish_prompt = (_lp or "").strip()
     _accumulate("openai", _extract_openai_usage(label_polish_gen_response))
     logger.info("Generated label polish prompt:\n%s", label_polish_prompt)
     if trace is not None:
@@ -643,7 +664,7 @@ def get_accurate_image(
     correction_prompts.append(label_polish_prompt)
 
     logger.info(
-        "Applying %d correction pass(es): %d structural + 1 label polish",
+        "Applying %d correction pass(es): %d illustration + 1 annotation polish",
         len(correction_prompts), num_structural_passes,
     )
 
@@ -700,6 +721,140 @@ def get_accurate_image(
         current_data_url,
         total_flaws,
         len(correction_prompts),
+        trace,
+        aggregated_usage,
+    )
+
+
+def refined_prompt_regenerate_image(
+    filename: str,
+    image_data_url: Optional[str] = None,
+    original_prompt: Optional[str] = None,
+    collect_trace: bool = False,
+) -> Tuple[str, bytes, str, str, str, Optional[List[Dict[str, Any]]], Dict[str, Any]]:
+    """
+    Vision QA (OpenAI) → refined full prompt (OpenAI text) → new image (Gemini).
+
+    Returns (final_filename, final_bytes, final_data_url, refined_prompt,
+             vision_analysis_text, trace | None, aggregated_usage).
+    """
+    if not state.gemini_client:
+        raise ValueError("Gemini client not initialized")
+    if not state.openai_api_key:
+        raise ValueError("OpenAI API key not configured")
+
+    if not image_data_url or not image_data_url.strip().lower().startswith("data:"):
+        image_pil = load_image_for_edit(filename, image_data_url or None)
+        buf = BytesIO()
+        image_pil.save(buf, format='PNG')
+        image_data_url = image_bytes_to_data_url(buf.getvalue())
+
+    oa_client = openai_lib.OpenAI(api_key=state.openai_api_key)
+    trace: Optional[List[Dict[str, Any]]] = [] if collect_trace else None
+
+    aggregated_usage: Dict[str, Dict[str, int]] = {
+        "openai": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "gemini": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
+
+    def _accumulate(provider: str, usage: Dict[str, Any]) -> None:
+        if not usage:
+            return
+        bucket = aggregated_usage[provider]
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)):
+                bucket[key] += int(value)
+
+    vision_user = REFINED_REGEN_VISION_USER
+    if original_prompt and original_prompt.strip():
+        vision_user += REFINED_REGEN_VISION_ORIGINAL_PROMPT_SUFFIX.format(
+            original_prompt=original_prompt.strip()
+        )
+
+    vision_analysis, vision_usage = _detect_flaws_via_openai(
+        oa_client,
+        REFINED_REGEN_VISION_SYSTEM,
+        vision_user,
+        image_data_url,
+        model=config.OPENAI_REFINED_REGEN_VISION_MODEL,
+        tag="refined-regen-vision",
+        trace=trace,
+        trace_step_id="refined-regen-vision",
+        trace_title="Vision QA — mistakes vs. prompt (refined regen)",
+    )
+    _accumulate("openai", vision_usage)
+
+    orig_for_refine = (original_prompt or "").strip()
+    if not orig_for_refine:
+        orig_for_refine = (
+            "(Not provided — infer subject, region, and teaching goal from the QA notes "
+            "and the figure; the replacement prompt must stand alone.)"
+        )
+
+    ref_user = (
+        "Original image generation prompt:\n"
+        + orig_for_refine
+        + "\n\nVision QA analysis of the current image:\n"
+        + vision_analysis
+    )
+    _refine_model = config.OPENAI_REFINED_REGEN_TEXT_MODEL
+    refine_response = oa_client.chat.completions.create(
+        model=_refine_model,
+        **_openai_chat_temperature_kwargs(_refine_model),
+        messages=[
+            {"role": "system", "content": REFINED_REGEN_PROMPT_SYSTEM},
+            {"role": "user", "content": ref_user},
+        ],
+        max_completion_tokens=8192,
+    )
+    raw_refined = refine_response.choices[0].message.content
+    refined_prompt = (raw_refined or "").strip()
+    _accumulate("openai", _extract_openai_usage(refine_response))
+    if trace is not None:
+        trace.append(
+            {
+                "id": "refined-prompt-gen",
+                "title": "OpenAI: refined image generation prompt",
+                "provider": "openai",
+                "model": config.OPENAI_REFINED_REGEN_TEXT_MODEL,
+                "input": {
+                    "system_prompt": REFINED_REGEN_PROMPT_SYSTEM,
+                    "user_prompt": ref_user,
+                },
+                "output": {"refined_prompt": refined_prompt},
+            }
+        )
+
+    if not refined_prompt:
+        raise ValueError("Refined prompt generation returned empty text")
+
+    gen_filename, gen_bytes, gen_data_url, gen_usage = generate_image(refined_prompt)
+    _accumulate("gemini", gen_usage)
+
+    if trace is not None:
+        trace.append(
+            {
+                "id": "result",
+                "title": "Final result",
+                "provider": "app",
+                "model": "",
+                "input": {},
+                "output": {
+                    "message": "Refined prompt regeneration complete.",
+                    "filename": gen_filename,
+                    "refined_prompt": refined_prompt,
+                    "png_byte_length": len(gen_bytes),
+                },
+            }
+        )
+
+    return (
+        gen_filename,
+        gen_bytes,
+        gen_data_url,
+        refined_prompt,
+        vision_analysis,
         trace,
         aggregated_usage,
     )

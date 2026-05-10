@@ -28,7 +28,7 @@
                 <p class="subtitle">
                     Chat with the AI to brainstorm. Hover any reply to push it
                     straight into image generation. Each chat session keeps its own
-                    history, generated images, and LLM metrics.
+                    history and generated images.
                 </p>
             </div>
             <div class="header-meta">
@@ -94,6 +94,9 @@
                         <div class="image-preview-header">
                             <div class="image-preview-title">Latest generated image</div>
                             <div class="image-preview-meta" id="aiImagePreviewMeta">No image generated yet</div>
+                            <div class="ai-latest-view-prompt" id="aiLatestViewPromptWrap" hidden>
+                                <button type="button" class="ai-view-prompt-btn" id="aiLatestViewPromptBtn">View prompt</button>
+                            </div>
                         </div>
                         <div class="image-preview-empty" id="aiImagePreviewEmpty">
                             Hover any AI reply and click <strong>Generate image</strong> to push it here.
@@ -107,6 +110,7 @@
                                 <button type="button" class="rag-btn rag-btn-primary" id="aiApplyChangesBtn">Apply changes</button>
                                 <button type="button" class="rag-btn rag-btn-secondary" id="aiGetAccurateBtn">Get Accurate</button>
                                 <button type="button" class="rag-btn rag-btn-secondary" id="aiGetAccurateTraceBtn">Get Accurate + log</button>
+                                <button type="button" class="rag-btn rag-btn-secondary" id="aiRefinedPromptImageBtn">Refined prompt image</button>
                             </div>
                         </div>
                     </div>
@@ -128,32 +132,6 @@
                         <div class="helper-text" id="aiChatImagesEmpty">No images yet for this session.</div>
                         <div class="ai-chat-images-grid" id="aiChatImagesGrid"></div>
                     </div>
-
-                    <details class="ai-llm-metrics" id="aiLlmMetrics" open>
-                        <summary class="ai-llm-metrics-summary">
-                            <span class="ai-llm-metrics-title">LLM METRICS</span>
-                            <span class="ai-llm-metrics-calls">Calls: <span id="aiMetricCalls">0</span></span>
-                        </summary>
-                        <div class="ai-llm-metrics-body">
-                            <details class="ai-llm-tokens-block" open>
-                                <summary class="ai-llm-tokens-summary">
-                                    <span class="ai-llm-tokens-label">TOKENS</span>
-                                    <span class="ai-llm-tokens-total" id="aiMetricTotalTokens">0</span>
-                                </summary>
-                                <div class="ai-llm-tokens-rows">
-                                    <div class="ai-llm-token-row">
-                                        <span>GPT</span>
-                                        <span id="aiMetricGptTokens">0</span>
-                                    </div>
-                                    <div class="ai-llm-token-row">
-                                        <span>Gemini</span>
-                                        <span id="aiMetricGeminiTokens">0</span>
-                                    </div>
-                                </div>
-                            </details>
-                            <p class="ai-llm-metrics-foot">Token counts for this session.</p>
-                        </div>
-                    </details>
                 </aside>
             </div>
         </main>
@@ -165,6 +143,22 @@
             <div class="image-fullscreen-inner" id="aiImageFullscreenInner">
                 <img id="imageFullscreen" class="image-fullscreen-image" alt="Full-screen view of generated image" />
                 <div id="imageFullscreenCaption" class="image-fullscreen-caption">Generated image</div>
+                <button type="button" class="rag-btn rag-btn-secondary ai-fullscreen-view-prompt" id="aiFullscreenViewPromptBtn" hidden>View prompt</button>
+            </div>
+        </div>
+
+        <div id="aiPromptModalOverlay" class="ai-prompt-modal-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+            <div class="ai-prompt-modal" id="aiPromptModal">
+                <div class="ai-prompt-modal-header">
+                    <h2 class="ai-prompt-modal-title" id="aiPromptModalTitle">Generation prompt</h2>
+                    <button type="button" class="ai-prompt-modal-close" id="aiPromptModalClose" aria-label="Close">&times;</button>
+                </div>
+                <div class="ai-prompt-modal-body-wrap">
+                    <pre class="ai-prompt-modal-body" id="aiPromptModalBody"></pre>
+                </div>
+                <div class="ai-prompt-modal-actions">
+                    <button type="button" class="rag-btn rag-btn-secondary" id="aiPromptModalCopy">Copy</button>
+                </div>
             </div>
         </div>
 

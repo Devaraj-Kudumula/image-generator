@@ -11,7 +11,9 @@ import traceback
 
 from flask import request, jsonify
 
+import config
 from app_state import state
+from prompts import AI_CHAT_SYSTEM
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,106 @@ def _extract_usage(response):
     }
 
 
+def _tiktoken_encoding_for_model(model_name: str):
+    try:
+        import tiktoken
+        try:
+            return tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            return tiktoken.get_encoding("cl100k_base")
+    except ImportError:
+        return None
+
+
+def _message_list_token_estimate(messages, encoding):
+    """Rough token count for OpenAI-style message list (content strings only)."""
+    total = 0
+    per_message_overhead = 4
+    for msg in messages:
+        content = msg.get("content")
+        text = content if isinstance(content, str) else ""
+        if encoding is not None:
+            total += len(encoding.encode(text))
+        else:
+            total += max(1, len(text) // 4)
+        total += per_message_overhead
+    return total
+
+
+def _normalize_history_entries(history):
+    """Return list of {role, content} dicts in order; only user/assistant with non-empty text."""
+    out = []
+    if not isinstance(history, list):
+        return out
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        role = entry.get("role")
+        content = entry.get("content")
+        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+            out.append({"role": role, "content": content})
+    return out
+
+
+def _build_messages_with_context_cap(
+    system_text,
+    history_entries,
+    user_message,
+    max_context_tokens,
+    model_name,
+):
+    """
+    Always include system + latest user message. Prior turns are included in full
+    order until the estimated *total* fits under max_context_tokens. Oldest complete
+    (user, assistant) pairs are removed first; if one message remains over budget,
+    drop from the front until the history slice fits its sub-budget.
+    """
+    encoding = _tiktoken_encoding_for_model(model_name)
+    user_message = (user_message or "").strip()
+    if not user_message:
+        return [], 0, len(history_entries)
+
+    system_msg = {"role": "system", "content": system_text}
+    user_msg = {"role": "user", "content": user_message}
+    fixed_tokens = _message_list_token_estimate([system_msg, user_msg], encoding)
+    # Small buffer for API message framing / tool-less chat overhead
+    history_budget = max_context_tokens - fixed_tokens - 16
+    if history_budget < 0:
+        logger.warning(
+            "[/ai-chat-message] OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS=%s is smaller than "
+            "system + latest user (~%s est. tokens); using history-only budget 0",
+            max_context_tokens,
+            fixed_tokens,
+        )
+        history_budget = 0
+
+    hist = list(history_entries)
+    trimmed_pairs = 0
+
+    def history_token_count():
+        return _message_list_token_estimate(hist, encoding)
+
+    while history_token_count() > history_budget:
+        if len(hist) >= 2:
+            hist = hist[2:]
+            trimmed_pairs += 1
+            continue
+        if hist:
+            hist = hist[1:]
+            continue
+        break
+
+    messages = [system_msg] + hist + [user_msg]
+    total_est = _message_list_token_estimate(messages, encoding)
+    if total_est > max_context_tokens:
+        logger.warning(
+            "[/ai-chat-message] Estimated total tokens %s still above cap %s (fixed messages dominate)",
+            total_est,
+            max_context_tokens,
+        )
+    return messages, total_est, trimmed_pairs
+
+
 def register(app):
     @app.route("/ai-chat-message", methods=["POST"])
     def ai_chat_message():
@@ -63,41 +165,60 @@ def register(app):
 
             if not user_message:
                 return jsonify({"error": "user_message is required"}), 400
-            if state.llm is None:
-                return jsonify({"error": "LLM is not initialized"}), 503
+            if state.conversation_llm is None:
+                return jsonify({"error": "Conversation LLM is not initialized"}), 503
 
-            messages = []
+            history_entries = _normalize_history_entries(history)
+            max_ctx = config.OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS
+            model_name = config.OPENAI_CONVERSATION_MODEL
 
-            if isinstance(history, list):
-                for entry in history:
-                    if not isinstance(entry, dict):
-                        continue
-                    role = entry.get("role")
-                    content = entry.get("content")
-                    if role in ("user", "assistant") and isinstance(content, str) and content.strip():
-                        messages.append({"role": role, "content": content})
-
-            messages.append({"role": "user", "content": user_message})
+            messages, est_input_tokens, trimmed_pairs = _build_messages_with_context_cap(
+                AI_CHAT_SYSTEM,
+                history_entries,
+                user_message,
+                max_ctx,
+                model_name,
+            )
+            if trimmed_pairs:
+                logger.info(
+                    "[/ai-chat-message] Trimmed %d oldest message pair(s) (~%s est. input tokens, cap=%s)",
+                    trimmed_pairs,
+                    est_input_tokens,
+                    max_ctx,
+                )
 
             api_start = time.time()
-            response = state.llm.invoke(messages)
+            response = state.conversation_llm.invoke(messages)
             api_latency_ms = int((time.time() - api_start) * 1000)
 
             usage = _extract_usage(response)
             response_metadata = getattr(response, "response_metadata", {}) or {}
-            model_name = response_metadata.get("model_name") or "gpt-4"
+            model_name = response_metadata.get("model_name") or model_name
             finish_reason = response_metadata.get("finish_reason")
+
+            raw_content = response.content
+            if isinstance(raw_content, list):
+                # Multimodal / structured content edge case
+                answer = ""
+                for part in raw_content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        answer += part.get("text") or ""
+                    elif isinstance(part, str):
+                        answer += part
+            else:
+                answer = (raw_content or "") if isinstance(raw_content, str) else str(raw_content or "")
 
             request_ms = int((time.time() - request_start) * 1000)
             logger.info(
-                "[/ai-chat-message] OK in %dms (api %dms, total_tokens=%s)",
+                "[/ai-chat-message] OK in %dms (api %dms, total_tokens=%s, history_turns=%s)",
                 request_ms,
                 api_latency_ms,
                 usage.get("total_tokens"),
+                len(history_entries),
             )
 
             return jsonify({
-                "answer": (response.content or "").strip(),
+                "answer": answer.strip(),
                 "metrics": {
                     "model": model_name,
                     "prompt_tokens": usage.get("prompt_tokens"),
@@ -106,6 +227,10 @@ def register(app):
                     "latency_ms": api_latency_ms,
                     "request_ms": request_ms,
                     "finish_reason": finish_reason,
+                    "history_turns_sent": len(history_entries),
+                    "history_turns_trimmed_pairs": trimmed_pairs,
+                    "estimated_input_tokens": est_input_tokens,
+                    "context_token_cap": max_ctx,
                 },
             }), 200
         except Exception as e:
