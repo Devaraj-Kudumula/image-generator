@@ -21,6 +21,29 @@ else:
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 GOOGLE_API_KEY = os.getenv('GOOGLE_GENERATIVE_AI_API_KEY')
 
+# OpenAI chat models (override via environment for newer API releases)
+OPENAI_RAG_MODEL = os.getenv('OPENAI_RAG_MODEL', 'gpt-4o')
+OPENAI_RAG_TEMPERATURE = float(os.getenv('OPENAI_RAG_TEMPERATURE', '0.2'))
+OPENAI_RAG_MAX_OUTPUT = int(os.getenv('OPENAI_RAG_MAX_OUTPUT', '2048'))
+
+# Standalone AI chat (ai_chat page): strongest text model by default; trim if env unset for older accounts.
+OPENAI_CONVERSATION_MODEL = os.getenv('OPENAI_CONVERSATION_MODEL', 'gpt-5.5')
+OPENAI_CONVERSATION_TEMPERATURE = float(os.getenv('OPENAI_CONVERSATION_TEMPERATURE', '0.7'))
+OPENAI_CONVERSATION_MAX_OUTPUT = int(os.getenv('OPENAI_CONVERSATION_MAX_OUTPUT', '8192'))
+# Approximate input token budget for history + system (completion budget is separate via max_tokens).
+OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS = int(
+    os.getenv('OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS', '200000')
+)
+OPENAI_CONVERSATION_REQUEST_TIMEOUT = int(os.getenv('OPENAI_CONVERSATION_REQUEST_TIMEOUT', '180'))
+
+# Refined-prompt regeneration (vision QA → text refinement → new Gemini image)
+OPENAI_REFINED_REGEN_VISION_MODEL = os.getenv(
+    'OPENAI_REFINED_REGEN_VISION_MODEL', 'gpt-5.4'
+)
+OPENAI_REFINED_REGEN_TEXT_MODEL = os.getenv(
+    'OPENAI_REFINED_REGEN_TEXT_MODEL', 'gpt-5.5'
+)
+
 # MongoDB
 MONGODB_URI = os.getenv(
     'MONGODB_URI',
@@ -43,39 +66,6 @@ ONDEMAND_INDEX_NAME = os.getenv('ONDEMAND_INDEX_NAME', 'default')
 NO_RAG_OPTION_VALUE = "NO_RAG"
 WEB_RETRIEVAL_OPTION_VALUE = "WEB_RETRIEVAL"
 WEB_RETRIEVAL_RESULT_COUNT = 10
-
-# LLM metrics/cost defaults (USD per 1M tokens). Override with env vars if needed.
-OPENAI_PRICING_PER_1M_TOKENS = {
-    "gpt-4": {
-        "input": float(os.getenv("OPENAI_GPT4_INPUT_PER_1M", "30.0")),
-        "output": float(os.getenv("OPENAI_GPT4_OUTPUT_PER_1M", "60.0")),
-    },
-    "gpt-5": {
-        "input": float(os.getenv("OPENAI_GPT5_INPUT_PER_1M", "5.0")),
-        "output": float(os.getenv("OPENAI_GPT5_OUTPUT_PER_1M", "15.0")),
-    },
-    "default": {
-        "input": float(os.getenv("OPENAI_DEFAULT_INPUT_PER_1M", "0.0")),
-        "output": float(os.getenv("OPENAI_DEFAULT_OUTPUT_PER_1M", "0.0")),
-    },
-}
-
-GEMINI_PRICING_PER_1M_TOKENS = {
-    "gemini-3": {
-        "input": float(os.getenv("GEMINI3_INPUT_PER_1M", "3.5")),
-        "output": float(os.getenv("GEMINI3_OUTPUT_PER_1M", "10.5")),
-    },
-    "gemini-2": {
-        "input": float(os.getenv("GEMINI2_INPUT_PER_1M", "1.25")),
-        "output": float(os.getenv("GEMINI2_OUTPUT_PER_1M", "5.0")),
-    },
-    "default": {
-        "input": float(os.getenv("GEMINI_DEFAULT_INPUT_PER_1M", "0.0")),
-        "output": float(os.getenv("GEMINI_DEFAULT_OUTPUT_PER_1M", "0.0")),
-    },
-}
-
-LLM_METRICS_RECENT_CALL_LIMIT = int(os.getenv("LLM_METRICS_RECENT_CALL_LIMIT", "100"))
 
 # Serper (web search)
 SERPER_API_KEY = (

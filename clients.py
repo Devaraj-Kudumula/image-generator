@@ -14,18 +14,40 @@ logger = logging.getLogger(__name__)
 
 
 def init_llm() -> Optional[ChatOpenAI]:
-    """Initialize OpenAI LLM. Returns None on failure."""
+    """Initialize OpenAI LLM for RAG / doc chat. Returns None on failure."""
     try:
         llm = ChatOpenAI(
-            model="gpt-4",
-            temperature=0.1,
+            model=config.OPENAI_RAG_MODEL,
+            temperature=config.OPENAI_RAG_TEMPERATURE,
+            max_tokens=config.OPENAI_RAG_MAX_OUTPUT,
             api_key=config.OPENAI_API_KEY,
-            request_timeout=60,
+            request_timeout=90,
         )
-        logger.info("LLM initialized successfully")
+        logger.info("LLM initialized successfully (model=%s)", config.OPENAI_RAG_MODEL)
         return llm
     except Exception as e:
         logger.error("Failed to initialize LLM: %s", e)
+        return None
+
+
+def init_conversation_llm() -> Optional[ChatOpenAI]:
+    """OpenAI chat model for the AI Chat page (long-form, full-history conversations)."""
+    try:
+        llm = ChatOpenAI(
+            model=config.OPENAI_CONVERSATION_MODEL,
+            temperature=config.OPENAI_CONVERSATION_TEMPERATURE,
+            max_tokens=config.OPENAI_CONVERSATION_MAX_OUTPUT,
+            api_key=config.OPENAI_API_KEY,
+            request_timeout=config.OPENAI_CONVERSATION_REQUEST_TIMEOUT,
+        )
+        logger.info(
+            "Conversation LLM initialized (model=%s, max_output=%s)",
+            config.OPENAI_CONVERSATION_MODEL,
+            config.OPENAI_CONVERSATION_MAX_OUTPUT,
+        )
+        return llm
+    except Exception as e:
+        logger.error("Failed to initialize conversation LLM: %s", e)
         return None
 
 

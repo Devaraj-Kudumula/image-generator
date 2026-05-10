@@ -14,8 +14,8 @@ from flask_cors import CORS
 import config
 from app_state import state
 from db import init_mongo
-from clients import init_llm, init_gemini, init_serper
-from routes import main_routes, rag_routes, image_routes
+from clients import init_llm, init_conversation_llm, init_gemini, init_serper
+from routes import main_routes, rag_routes, image_routes, ai_chat_routes
 
 # Configure logging
 logging.basicConfig(
@@ -47,8 +47,8 @@ else:
 # Initialize LLM and Gemini
 logger.info("Initializing LLM...")
 state.llm = init_llm()
+state.conversation_llm = init_conversation_llm()
 state.openai_api_key = config.OPENAI_API_KEY
-state.google_api_key = config.GOOGLE_API_KEY
 
 logger.info("Initializing Gemini client...")
 state.gemini_client = init_gemini()
@@ -70,6 +70,7 @@ logger.info("Initializing MongoDB connection...")
 main_routes.register(app)
 rag_routes.register(app)
 image_routes.register(app)
+ai_chat_routes.register(app)
 logger.info("Routes registered")
 
 if __name__ == '__main__':

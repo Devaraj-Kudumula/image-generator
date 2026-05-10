@@ -14,8 +14,6 @@ import config
 from app_state import state
 from db import fetch_distinct_doc_names
 from services import ondemand_docs_service
-from services.llm_metrics_service import record_langchain_openai_call
-
 logger = logging.getLogger(__name__)
 
 BASE_DOC_PREFIX = "base::"
@@ -215,14 +213,6 @@ def is_web_retrieval_selected(selected_doc_names: Any) -> bool:
     )
 
 
-def normalize_selected_sources(
-    selected_doc_names: Any,
-    session_id: str = "",
-) -> List[str]:
-    """Preserve selected sources while validating known document names."""
-    return sanitize_selected_doc_names(selected_doc_names, session_id=session_id)
-
-
 def should_run_doc_retrieval(
     raw_selected_sources: Any,
     sanitized_doc_names: List[str],
@@ -257,15 +247,6 @@ def should_run_doc_retrieval(
         return False
 
     return True
-
-
-def _strip_html_to_text(html: str) -> str:
-    """Convert raw HTML into plain text with light cleanup."""
-    content = re.sub(r"(?is)<script.*?>.*?</script>", " ", html)
-    content = re.sub(r"(?is)<style.*?>.*?</style>", " ", content)
-    content = re.sub(r"(?is)<[^>]+>", " ", content)
-    content = re.sub(r"\s+", " ", content)
-    return content.strip()
 
 
 def _fetch_webpage_text(
@@ -482,96 +463,6 @@ def build_combined_context(
     return "\n\n==============================\n\n".join(
         section for section in sections if section.strip()
     )
-
-
-def build_structured_retrieval_query(
-    user_question: str,
-    exam_focus: str = "general",
-    teaching_notes: Optional[str] = None,
-) -> str:
-    """Build a concise clinical retrieval query from the raw user question."""
-    base_question = (user_question or "").strip()
-    if not base_question:
-        return ""
-
-    notes = (teaching_notes or "").strip()
-    if notes:
-        base_question = (
-            f"{base_question}\n\nLearner emphasis / notes for retrieval: {notes}"
-        )
-    if exam_focus == "step1":
-        base_question += (
-            "\n\n[Bias: USMLE Step 1 — mechanisms, associations, pathways, "
-            "anatomy, histology, biochemistry, physiology, high-yield discriminators.]"
-        )
-    elif exam_focus == "step2":
-        base_question += (
-            "\n\n[Bias: USMLE Step 2 CK — presentation, diagnosis, management, "
-            "clinical findings, branch points, discriminating features.]"
-        )
-
-    if state.llm is None:
-        return base_question
-
-    extract_system = """You are a medical retrieval query generator.
-
-Your task is to convert the user’s medical question into a single, highly optimized search query for retrieving relevant medical textbook content.
-
-The query must be dense, specific, and medically rich.
-
-Instructions:
-
-• Identify the core medical concept (anatomy, disease, pathology, physiology, mechanism)
-• Expand with related anatomical structures, systems, and pathways
-• Include mechanism-related terms (flow, obstruction, degeneration, signaling, etc.)
-• Include synonyms or closely related medical terminology
-• Remove conversational phrases (e.g., "explain", "what is")
-• If the user message includes a [Bias: USMLE ...] line, respect that exam focus when choosing expansion terms
-
-Focus on retrieving:
-• anatomical relationships
-• structural hierarchy
-• underlying mechanisms
-• system-level context
-
-Output Rules:
-
-• Return ONE single-line query
-• Do NOT explain anything
-• Do NOT return bullets or JSON
-
-Example:
-
-User: anatomy of subclavian steal syndrome
-
-Output:
-subclavian steal syndrome anatomy vertebral artery subclavian artery stenosis basilar artery posterior circulation retrograde blood flow vascular pathway"""
-
-    try:
-        logger.info("Extracting structured retrieval query...")
-        extract_response = state.llm.invoke([
-            {"role": "system", "content": extract_system},
-            {"role": "user", "content": base_question},
-        ])
-        model_name = getattr(state.llm, "model_name", None) or "gpt-4"
-        record_langchain_openai_call(extract_response, model_name)
-        structured_query = (extract_response.content or "").strip()
-        if structured_query:
-            logger.info(
-                "Structured retrieval query: %s...",
-                structured_query,
-            )
-            return structured_query
-        logger.warning(
-            "Structured retrieval query was empty; falling back to raw user question"
-        )
-        return base_question
-    except Exception as extract_error:
-        logger.warning(
-            "Failed to extract structured retrieval query: %s",
-            extract_error,
-        )
-        return base_question
 
 
 def retrieve_docs_with_timeout(

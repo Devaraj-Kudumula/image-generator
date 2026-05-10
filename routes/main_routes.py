@@ -3,11 +3,10 @@ Main routes: index and health check.
 """
 import logging
 
-from flask import send_from_directory, jsonify, request
+from flask import send_from_directory, jsonify
 
 import config
 from app_state import state
-from services.llm_metrics_service import llm_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,11 @@ def register(app):
     def upload_edit():
         logger.info("Serving upload_edit.html")
         return send_from_directory('.', 'upload_edit.html')
+
+    @app.route('/ai-chat')
+    def ai_chat():
+        logger.info("Serving ai_chat.html")
+        return send_from_directory('.', 'ai_chat.html')
 
     @app.route('/health', methods=['GET'])
     def health():
@@ -53,9 +57,3 @@ def register(app):
         }
         logger.info("Health check: %s", status)
         return jsonify(status), 200
-
-    @app.route('/llm-metrics', methods=['GET'])
-    def get_llm_metrics():
-        """Return LLM usage metrics (global or scoped to a chat_id)."""
-        chat_id = (request.args.get('chat_id') or '').strip() or None
-        return jsonify(llm_metrics.get_snapshot(chat_id=chat_id)), 200

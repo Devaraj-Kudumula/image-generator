@@ -55,7 +55,7 @@ def register(app):
 
             logger.info("Calling Gemini API...")
             api_start = time.time()
-            filename, image_bytes, image_data_url = image_service.generate_image(
+            filename, image_bytes, image_data_url, gemini_usage = image_service.generate_image(
                 prompt
             )
             api_time = time.time() - api_start
@@ -78,6 +78,7 @@ def register(app):
                 'filename': filename,
                 'image_data_url': image_data_url,
                 'success': True,
+                'usage': {'gemini': gemini_usage or {}},
             })
 
         except ValueError as e:
@@ -168,7 +169,7 @@ def register(app):
             logger.info("Calling Gemini API for image editing...")
             api_start = time.time()
             try:
-                new_filename, edited_bytes, edited_image_data_url = (
+                new_filename, edited_bytes, edited_image_data_url, gemini_usage = (
                     image_service.edit_image(
                         filename, changes, image_data_url or None
                     )
@@ -201,6 +202,7 @@ def register(app):
                 'filename': new_filename,
                 'image_data_url': edited_image_data_url,
                 'success': True,
+                'usage': {'gemini': gemini_usage or {}},
             })
 
         except Exception as e:
@@ -259,11 +261,12 @@ def register(app):
             try:
                 (
                     final_filename,
-                    final_bytes,
+                    _,
                     final_data_url,
                     flaws_count,
                     iterations,
                     accuracy_trace,
+                    accurate_usage,
                 ) = image_service.get_accurate_image(
                     filename,
                     image_data_url or None,
@@ -299,6 +302,7 @@ def register(app):
                 'flaws_detected': flaws_count,
                 'iterations': iterations,
                 'success': True,
+                'usage': accurate_usage or {},
             }
             if include_trace and accuracy_trace is not None:
                 payload['accuracy_trace'] = accuracy_trace
@@ -315,4 +319,102 @@ def register(app):
             logger.info("=" * 50)
             return jsonify({
                 'error': f'Error during accuracy refinement: {str(e)}'
+            }), 500
+
+    @app.route('/refined-prompt-image', methods=['POST'])
+    def refined_prompt_image():
+        """
+        Vision QA on the current image vs. prompt, GPT refines the full generation
+        prompt, then Gemini generates a new image from scratch.
+        """
+        request_start = time.time()
+        logger.info("=" * 50)
+        logger.info("[/refined-prompt-image] Request received")
+
+        try:
+            data = request.get_json()
+            filename = (data or {}).get('filename', '')
+            image_data_url = (data or {}).get('image_data_url', '')
+            original_prompt = (data or {}).get('original_prompt', '') or (data or {}).get('prompt', '')
+            include_trace = bool((data or {}).get('include_trace'))
+
+            if not filename and not image_data_url:
+                return jsonify({
+                    'error': 'Either filename or image_data_url is required'
+                }), 400
+
+            if not config.GOOGLE_API_KEY:
+                return jsonify({
+                    'error': 'Google Generative AI API key not configured.'
+                }), 500
+
+            if not state.gemini_client:
+                return jsonify({'error': 'Gemini client not initialized'}), 500
+
+            if not state.openai_api_key:
+                return jsonify({'error': 'OpenAI API key not configured'}), 500
+
+            api_start = time.time()
+            try:
+                (
+                    final_filename,
+                    _,
+                    final_data_url,
+                    refined_prompt,
+                    vision_analysis,
+                    regen_trace,
+                    regen_usage,
+                ) = image_service.refined_prompt_regenerate_image(
+                    filename,
+                    image_data_url or None,
+                    original_prompt or None,
+                    collect_trace=include_trace,
+                )
+            except ValueError as e:
+                msg = str(e)
+                if "File not found" in msg:
+                    return jsonify({'error': msg}), 404
+                return jsonify({'error': msg}), 500
+
+            api_time = time.time() - api_start
+            logger.info(
+                "[/refined-prompt-image] Done in %.2fs (refined prompt length=%d)",
+                api_time,
+                len(refined_prompt or ''),
+            )
+
+            image_url = (
+                final_data_url
+                if config.IS_SERVERLESS and final_data_url
+                else f'{request.host_url}images/{final_filename}'
+            )
+
+            request_time = time.time() - request_start
+            logger.info("[/refined-prompt-image] Success in %.2fs", request_time)
+            logger.info("=" * 50)
+
+            payload = {
+                'image_url': image_url,
+                'filename': final_filename,
+                'image_data_url': final_data_url,
+                'refined_prompt': refined_prompt,
+                'vision_analysis': vision_analysis,
+                'success': True,
+                'usage': regen_usage or {},
+            }
+            if include_trace and regen_trace is not None:
+                payload['refined_regen_trace'] = regen_trace
+            return jsonify(payload)
+
+        except Exception as e:
+            request_time = time.time() - request_start
+            logger.error(
+                "[/refined-prompt-image] Error after %.2fs: %s",
+                request_time,
+                e,
+            )
+            logger.error(traceback.format_exc())
+            logger.info("=" * 50)
+            return jsonify({
+                'error': f'Error during refined prompt regeneration: {str(e)}'
             }), 500
