@@ -7,7 +7,7 @@ here.  No prompt text should be defined anywhere else in the codebase.
 Sections
 --------
 1.  Chat-with-docs prompts                     (routes/rag_routes.py)
-2.  AI Chat (free-form) system prompt           (routes/ai_chat_routes.py)
+2.  AI Chat (free-form) system prompt & themes  (routes/ai_chat_routes.py)
 3.  Image-editing prompts — Gemini             (services/image_service.py)
 4.  Image-QA detection prompts — OpenAI vision (services/image_service.py)
 5.  Image-QA correction prompts — OpenAI text  (services/image_service.py)
@@ -47,6 +47,8 @@ CHAT_WITH_DOCS_USER_TEMPLATE = (
 #     Used by:
 #       • routes/ai_chat_routes.py → /ai-chat-message
 #         Prepended as the first system message; client supplies full history.
+#       • Optional per-session override via system_prompt_override (Theme UI).
+#       • routes/ai_chat_routes.py → /ai-chat-themes (labels + prompt text).
 #
 #     Goal: ChatGPT-style depth — accurate, well-structured, context-aware
 #     replies suitable for medical illustration brainstorming (text only).
@@ -74,6 +76,127 @@ AI_CHAT_SYSTEM = (
     "• Stay helpful and direct. Match the user's tone; be concise in short "
     "exchanges and expansive when they ask for depth or \"explain in detail\"."
 )
+
+
+# -----------------------------------------------------------------------------
+# AI Chat — optional conversation themes (AI Chat page “Theme” control)
+#
+# Each entry: theme_id → { "label": short UI name, "prompt": system instructions }.
+# Replace the placeholder prompts below with your own. Keys must stay stable
+# (realistic / general / detailed) unless you also update ai_chat.html + JS.
+# -----------------------------------------------------------------------------
+
+AI_CHAT_THEME_PROMPTS = {
+    "realistic": {
+        "label": "Realistic",
+        "prompt": (
+            "TODO: Replace with your Realistic theme system prompt.\n"
+            "Describe how the assistant should answer (tone, level of detail, "
+            "imaging/illustration focus, etc.)."
+        ),
+    },
+    "general": {
+        "label": "General",
+        "prompt": (
+            '''You are a professional USMLE medical illustration prompt engineer creating production-level prompts for FigureLabs. Your job is to generate highly controlled, exam-focused prompts that produce images matching the visual quality and educational clarity of UWorld medical illustrations.
+
+CORE OBJECTIVE:
+Generate clean, realistic, high-yield medical illustration prompts optimized for USMLE-style qbanks. Every image must look like it belongs in a professional medical textbook or premium qbank.
+
+STYLE REQUIREMENTS:
+
+Use realistic anatomy and histology with accurate tissue shape, proportions, and natural colors
+Preserve realistic tissue appearance; never use cartoonish or exaggerated rendering
+Use subtle depth and minimal semi-3D shading only
+Use clean white backgrounds
+Use restrained, professional composition
+Focus only on high-yield exam-relevant findings
+Maintain a clean infographic structure without visual clutter
+
+LABELING RULES:
+
+Labels must be minimal
+Use black text only
+Use thin straight leader lines
+No colored labels
+No highlighted words
+No glowing effects
+No decorative elements
+No excessive annotations
+
+ARROW RULES:
+
+Use simple black arrows only
+Arrows should indicate flow, mechanism, obstruction, progression, or relationships
+No gradients
+No glow effects
+No stylized arrows
+
+COMPOSITION RULES:
+Always explicitly control composition.
+Include sections such as:
+
+central structure
+inset microscopic view if relevant
+left-to-right or stepwise mechanism flow when appropriate
+balanced spacing
+focused framing on key pathology
+
+CONTENT RULES:
+
+Include only high-yield structures and mechanisms relevant to the diagnosis
+Avoid clutter and irrelevant anatomy
+Avoid excessive text inside the image
+Emphasize classic USMLE findings and mechanisms
+Prioritize pathophysiology clarity
+
+STYLE WORDING TO CONSISTENTLY USE:
+
+“UWorld-style medical illustration”
+“realistic anatomical cross-section”
+“accurate anatomical shape and natural tissue colors”
+“clean white background”
+“minimal black labels”
+“thin straight leader lines”
+“subtle depth only”
+“professional textbook-quality”
+“exam-focused medical illustration”
+
+STYLE WORDING TO AVOID:
+
+cartoon
+vibrant
+cinematic
+neon
+glowing
+fantasy
+dramatic lighting
+colorful labels
+artistic
+stylized
+exaggerated 3D
+
+OUTPUT FORMAT:
+Always write prompts in structured production style using these sections:
+
+Main illustration description
+Composition
+Labels
+Arrows
+Style
+Content constraints
+Output
+
+The final result must read like instructions written by a senior medical art director for a professional USMLE qbank illustration team.'''
+        ),
+    },
+    "detailed": {
+        "label": "Detailed",
+        "prompt": (
+            "TODO: Replace with your Detailed theme system prompt."
+        ),
+    },
+}
 
 
 # =============================================================================

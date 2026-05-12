@@ -45,6 +45,7 @@
             name: name || ('Chat ' + id),
             messages: [],
             images: [],
+            systemPromptOverride: null,
         };
         sessions.push(session);
         activeSessionId = id;
@@ -150,6 +151,30 @@
 
         container.innerHTML = '';
         messages.forEach((msg) => {
+            if (msg.role === 'theme') {
+                const row = document.createElement('div');
+                row.className = 'ai-chat-message ai-chat-theme';
+                row.dataset.messageId = msg.id;
+
+                const roleLabel = document.createElement('div');
+                roleLabel.className = 'ai-chat-role';
+                roleLabel.textContent = 'Theme · ' + (msg.themeLabel || msg.themeId || 'Custom');
+                row.appendChild(roleLabel);
+
+                const content = document.createElement('div');
+                content.className = 'ai-chat-content';
+                content.textContent = msg.content;
+                row.appendChild(content);
+
+                const meta = document.createElement('div');
+                meta.className = 'ai-chat-msg-meta';
+                meta.textContent = 'This text is sent to the model as the system prompt for this chat until you pick another theme or clear messages.';
+                row.appendChild(meta);
+
+                container.appendChild(row);
+                return;
+            }
+
             const row = document.createElement('div');
             row.className = 'ai-chat-message ' + (msg.role === 'user' ? 'ai-chat-user' : 'ai-chat-assistant');
             row.dataset.messageId = msg.id;
@@ -329,31 +354,26 @@
         renderImages();
     }
 
-    // ---------------- Send message ----------------
-    async function sendMessage() {
-        const inputEl = document.getElementById('aiChatInput');
-        const sendBtn = document.getElementById('aiChatSendBtn');
+    function buildHistoryForApi(session) {
+        if (!session) return [];
+        return session.messages
+            .filter(function(m) { return m.role === 'user' || m.role === 'assistant'; })
+            .map(function(m) { return { role: m.role, content: m.content }; });
+    }
+
+    async function completeChatTurn(session, userText, historyForApi) {
         const loadingEl = document.getElementById('aiChatLoading');
         const errorEl = document.getElementById('aiChatError');
+        const sendBtn = document.getElementById('aiChatSendBtn');
 
-        const text = inputEl ? inputEl.value.trim() : '';
-        if (!text) return;
-
-        let session = getActiveSession();
-        if (!session) session = createSession();
-
-        // History to send to backend = everything in this session BEFORE the new
-        // user message (the server appends the user message itself).
-        const historyForApi = session.messages.map(m => ({
-            role: m.role,
-            content: m.content,
-        }));
-
-        session.messages.push({ id: nextMessageId++, role: 'user', content: text });
-        if (inputEl) inputEl.value = '';
-        renderMessages();
-        renderHeader();
-        renderSidebar();
+        const body = {
+            user_message: userText,
+            history: historyForApi || [],
+        };
+        const ov = session.systemPromptOverride;
+        if (ov && String(ov).trim()) {
+            body.system_prompt_override = String(ov).trim();
+        }
 
         if (loadingEl) loadingEl.classList.remove('hidden');
         if (errorEl) {
@@ -366,10 +386,7 @@
             const response = await fetch('/ai-chat-message', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_message: text,
-                    history: historyForApi,
-                }),
+                body: JSON.stringify(body),
             });
             const data = await response.json();
             if (!response.ok) {
@@ -389,6 +406,8 @@
                 content: 'Error: ' + (error.message || 'Unknown error'),
             });
             renderMessages();
+            renderHeader();
+            renderSidebar();
             if (errorEl) {
                 errorEl.textContent = 'Error: ' + (error.message || 'Unknown error');
                 errorEl.classList.remove('hidden');
@@ -397,6 +416,156 @@
             if (loadingEl) loadingEl.classList.add('hidden');
             if (sendBtn) sendBtn.disabled = false;
         }
+    }
+
+    // ---------------- Send message ----------------
+    async function sendMessage() {
+        const inputEl = document.getElementById('aiChatInput');
+        const text = inputEl ? inputEl.value.trim() : '';
+        if (!text) return;
+
+        let session = getActiveSession();
+        if (!session) session = createSession();
+
+        const historyForApi = buildHistoryForApi(session);
+
+        session.messages.push({ id: nextMessageId++, role: 'user', content: text });
+        if (inputEl) inputEl.value = '';
+        renderMessages();
+        renderHeader();
+        renderSidebar();
+
+        await completeChatTurn(session, text, historyForApi);
+    }
+
+    function themeKickoffUserMessage(label) {
+        return (
+            'The user selected the "' + label + '" theme; the full system instructions were shown in the chat. ' +
+            'Reply in one or two short sentences that you will follow those instructions for this conversation, ' +
+            'then invite their next message.'
+        );
+    }
+
+    async function applyChatTheme(themeId, label, promptText) {
+        const prompt = (promptText || '').trim();
+        if (!prompt) {
+            const err = document.getElementById('aiChatError');
+            if (err) {
+                err.textContent = 'This theme has no prompt text yet. Edit AI_CHAT_THEME_PROMPTS in prompts.py.';
+                err.classList.remove('hidden');
+            }
+            return;
+        }
+
+        let session = getActiveSession();
+        if (!session) session = createSession();
+
+        const historyForApi = buildHistoryForApi(session);
+
+        session.systemPromptOverride = prompt;
+        session.messages.push({
+            id: nextMessageId++,
+            role: 'theme',
+            themeId: themeId,
+            themeLabel: label,
+            content: prompt,
+        });
+        renderMessages();
+        renderHeader();
+        renderSidebar();
+
+        await completeChatTurn(session, themeKickoffUserMessage(label), historyForApi);
+    }
+
+    // ---------------- Theme menu (conversation style) ----------------
+
+    function setThemeMenuOpen(open) {
+        const btn = document.getElementById('aiChatThemeBtn');
+        const menu = document.getElementById('aiChatThemeMenu');
+        if (!menu || !btn) return;
+        if (open) {
+            menu.classList.remove('hidden');
+            btn.setAttribute('aria-expanded', 'true');
+            menu.setAttribute('aria-hidden', 'false');
+        } else {
+            menu.classList.add('hidden');
+            btn.setAttribute('aria-expanded', 'false');
+            menu.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    function isThemeMenuOpen() {
+        const menu = document.getElementById('aiChatThemeMenu');
+        return menu && !menu.classList.contains('hidden');
+    }
+
+    function initChatThemeMenu() {
+        const btn = document.getElementById('aiChatThemeBtn');
+        const menu = document.getElementById('aiChatThemeMenu');
+        if (!btn || !menu) return;
+
+        fetch('/ai-chat-themes')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                const themes = (data && data.themes) || {};
+                const preferredOrder = ['realistic', 'general', 'detailed'];
+                const keys = [];
+                preferredOrder.forEach(function(k) {
+                    if (themes[k]) keys.push(k);
+                });
+                Object.keys(themes).sort().forEach(function(k) {
+                    if (keys.indexOf(k) === -1) keys.push(k);
+                });
+
+                menu.innerHTML = '';
+                keys.forEach(function(id) {
+                    const meta = themes[id];
+                    const label = (meta && meta.label) || id;
+                    const prompt = (meta && meta.prompt) || '';
+                    const opt = document.createElement('button');
+                    opt.type = 'button';
+                    opt.className = 'ai-chat-theme-option';
+                    opt.setAttribute('role', 'menuitem');
+                    opt.dataset.themeId = id;
+                    const title = document.createElement('span');
+                    title.textContent = label;
+                    opt.appendChild(title);
+                    const desc = document.createElement('span');
+                    desc.className = 'ai-chat-theme-option-desc';
+                    desc.textContent = prompt.trim()
+                        ? 'Apply as system prompt'
+                        : 'No prompt configured';
+                    opt.appendChild(desc);
+                    opt.addEventListener('click', function() {
+                        setThemeMenuOpen(false);
+                        applyChatTheme(id, label, prompt);
+                    });
+                    menu.appendChild(opt);
+                });
+
+                btn.disabled = keys.length === 0;
+            })
+            .catch(function() {
+                btn.disabled = true;
+                const err = document.getElementById('aiChatError');
+                if (err) {
+                    err.textContent = 'Could not load themes. Check your connection and try again.';
+                    err.classList.remove('hidden');
+                }
+            });
+
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (btn.disabled) return;
+            setThemeMenuOpen(!isThemeMenuOpen());
+        });
+
+        document.addEventListener('click', function() {
+            if (isThemeMenuOpen()) setThemeMenuOpen(false);
+        });
+        menu.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
     }
 
     // ---------------- Generate image from message ----------------
@@ -755,6 +924,7 @@
         if (!confirm('Clear all messages and images in this chat?')) return;
         session.messages = [];
         session.images = [];
+        session.systemPromptOverride = null;
         renderAll();
     }
 
@@ -790,6 +960,7 @@
     function init() {
         initThemeToggle();
         initSidebarToggle();
+        initChatThemeMenu();
         createSession('Chat 1');
         renderAll();
 
@@ -840,6 +1011,10 @@
         }
         document.addEventListener('keydown', function(e) {
             if (e.key !== 'Escape') return;
+            if (isThemeMenuOpen()) {
+                setThemeMenuOpen(false);
+                return;
+            }
             const promptOv = document.getElementById('aiPromptModalOverlay');
             if (promptOv && promptOv.classList.contains('active')) {
                 closePromptModal();
