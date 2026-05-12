@@ -71,7 +71,16 @@
                             <div class="section-title" id="aiActiveChatTitle">Chat</div>
                             <div class="helper-text" id="aiActiveChatMeta">Type a question below to start.</div>
                         </div>
-                        <button type="button" class="rag-btn rag-btn-secondary" id="aiClearChatBtn">Clear messages</button>
+                        <div class="ai-chat-main-header-actions">
+                            <div class="ai-chat-theme-wrap">
+                                <button type="button" class="rag-btn rag-btn-secondary ai-chat-theme-btn" id="aiChatThemeBtn" aria-expanded="false" aria-haspopup="menu" aria-controls="aiChatThemeMenu" disabled>
+                                    Theme
+                                    <span class="ai-chat-theme-chevron" aria-hidden="true"></span>
+                                </button>
+                                <div class="ai-chat-theme-menu hidden" id="aiChatThemeMenu" role="menu" aria-hidden="true" aria-labelledby="aiChatThemeBtn"></div>
+                            </div>
+                            <button type="button" class="rag-btn rag-btn-secondary" id="aiClearChatBtn">Clear messages</button>
+                        </div>
                     </div>
 
                     <div class="ai-chat-messages" id="aiChatMessages"></div>

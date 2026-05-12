@@ -13,9 +13,12 @@ from flask import request, jsonify
 
 import config
 from app_state import state
-from prompts import AI_CHAT_SYSTEM
+from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS
 
 logger = logging.getLogger(__name__)
+
+# Hard cap for client-supplied system override (chars) to avoid abuse / huge payloads.
+_AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS = 12000
 
 
 def _extract_usage(response):
@@ -152,6 +155,18 @@ def _build_messages_with_context_cap(
 
 
 def register(app):
+    @app.route("/ai-chat-themes", methods=["GET"])
+    def ai_chat_themes():
+        """Theme ids, labels, and full system prompt text for the AI Chat page."""
+        themes = {}
+        for theme_id, meta in (AI_CHAT_THEME_PROMPTS or {}).items():
+            if not isinstance(meta, dict):
+                continue
+            label = str(meta.get("label") or theme_id).strip() or theme_id
+            prompt = str(meta.get("prompt") or "").strip()
+            themes[theme_id] = {"label": label, "prompt": prompt}
+        return jsonify({"themes": themes}), 200
+
     @app.route("/ai-chat-message", methods=["POST"])
     def ai_chat_message():
         """Generate a chat reply from the LLM (no document retrieval)."""
@@ -162,6 +177,18 @@ def register(app):
             data = request.get_json() or {}
             user_message = str((data or {}).get("user_message") or "").strip()
             history = (data or {}).get("history") or []
+            override_raw = (data or {}).get("system_prompt_override")
+            system_text = AI_CHAT_SYSTEM
+            if isinstance(override_raw, str):
+                stripped = override_raw.strip()
+                if stripped:
+                    if len(stripped) > _AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS:
+                        return jsonify({
+                            "error": (
+                                f"system_prompt_override exceeds {_AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS} characters"
+                            ),
+                        }), 400
+                    system_text = stripped
 
             if not user_message:
                 return jsonify({"error": "user_message is required"}), 400
@@ -173,7 +200,7 @@ def register(app):
             model_name = config.OPENAI_CONVERSATION_MODEL
 
             messages, est_input_tokens, trimmed_pairs = _build_messages_with_context_cap(
-                AI_CHAT_SYSTEM,
+                system_text,
                 history_entries,
                 user_message,
                 max_ctx,
