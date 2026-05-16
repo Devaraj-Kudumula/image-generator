@@ -508,7 +508,13 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 const themes = (data && data.themes) || {};
-                const preferredOrder = ['realistic', 'general', 'detailed'];
+                const preferredOrder = [
+                    'realistic',
+                    'general',
+                    'histology',
+                    'organ_images',
+                    'radiology',
+                ];
                 const keys = [];
                 preferredOrder.forEach(function(k) {
                     if (themes[k]) keys.push(k);
