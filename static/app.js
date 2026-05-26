@@ -42,6 +42,15 @@ function withActiveChatId(payload) {
     };
 }
 
+const DEFAULT_ASPECT_RATIO = '16:9';
+const ALLOWED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'];
+
+function getSelectedAspectRatio() {
+    const el = document.getElementById('aspectRatio');
+    const v = el && el.value ? String(el.value).trim() : '';
+    return ALLOWED_ASPECT_RATIOS.includes(v) ? v : DEFAULT_ASPECT_RATIO;
+}
+
 async function resetServerSession(sessionId) {
     if (!sessionId) return;
     try {
@@ -510,6 +519,12 @@ function renderConversation() {
             textEl.className = 'message-text';
             textEl.textContent = entry.text;
             bubble.appendChild(textEl);
+            if (entry.aspectRatio) {
+                const tag = document.createElement('span');
+                tag.className = 'aspect-ratio-tag';
+                tag.textContent = 'Aspect: ' + entry.aspectRatio;
+                bubble.appendChild(tag);
+            }
             const editLink = document.createElement('button');
             editLink.type = 'button';
             editLink.className = 'message-edit-link';
@@ -625,11 +640,13 @@ async function regenerateFromPromptMessage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
     try {
-        const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ prompt })) });
+        const aspectRatio = getSelectedAspectRatio();
+        const response = await fetch('/generate-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ prompt, aspect_ratio: aspectRatio })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
-            addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'image', sourcePrompt: prompt, meta: 'Generated image' });
+            const usedRatio = data.aspect_ratio || aspectRatio;
+            addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'image', sourcePrompt: prompt, aspectRatio: usedRatio, meta: 'Generated image · ' + usedRatio });
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
             showSuccess('imageSuccess', 'Image regenerated from edited prompt.');
         } else {
@@ -667,11 +684,13 @@ async function regenerateFromEditMessage(entryIndex) {
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
     try {
-        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename: prevFilename, image_data_url: prevImageDataUrl, changes })) });
+        const aspectRatio = getSelectedAspectRatio();
+        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename: prevFilename, image_data_url: prevImageDataUrl, changes, aspect_ratio: aspectRatio })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
-            addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
+            const usedRatio = data.aspect_ratio || aspectRatio;
+            addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'edited_image', sourcePrompt: changes, aspectRatio: usedRatio, meta: 'Edited image · ' + usedRatio });
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
             showSuccess('imageSuccess', 'Edit reapplied from updated request.');
         } else {
@@ -708,13 +727,15 @@ async function applyChangesToImage(entryIndex, changes) {
     loading.classList.add('active');
     errorDiv.classList.remove('active');
     successDiv.classList.remove('active');
-    addConversationEntry({ role: 'user', text: changes, type: 'edit_request' });
+    const aspectRatio = getSelectedAspectRatio();
+    addConversationEntry({ role: 'user', text: changes, aspectRatio: aspectRatio, type: 'edit_request' });
     try {
-        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl, changes })) });
+        const response = await fetch('/edit-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(withActiveChatId({ filename, image_data_url: imageDataUrl, changes, aspect_ratio: aspectRatio })) });
         const data = await response.json();
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
-            addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'edited_image', sourcePrompt: changes, meta: 'Edited image' });
+            const usedRatio = data.aspect_ratio || aspectRatio;
+            addConversationEntry({ role: 'assistant', imageUrl: data.image_url, imageDataUrl: data.image_data_url || null, filename: data.filename, type: 'edited_image', sourcePrompt: changes, aspectRatio: usedRatio, meta: 'Edited image · ' + usedRatio });
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
             showSuccess('imageSuccess', 'Changes applied.');
         } else {
@@ -816,6 +837,7 @@ async function getAccurateImage(entryIndex, options) {
         : 'Get Accurate: checking anatomy, view, labels, and pedagogy — fixing issues…';
     addConversationEntry({ role: 'user', text: userLine, type: 'get_accurate_request' });
 
+    const aspectRatio = getSelectedAspectRatio();
     try {
         const response = await fetch('/get-accurate', {
             method: 'POST',
@@ -824,7 +846,8 @@ async function getAccurateImage(entryIndex, options) {
                 filename,
                 image_data_url: imageDataUrl,
                 original_prompt: originalPrompt,
-                include_trace: includeTrace
+                include_trace: includeTrace,
+                aspect_ratio: aspectRatio
             }))
         });
         const data = await response.json();
@@ -832,15 +855,18 @@ async function getAccurateImage(entryIndex, options) {
             const displaySrc = data.image_data_url || data.image_url;
             const flaws = data.flaws_detected || 0;
             const iters = data.iterations || 0;
-            const metaLabel = flaws > 0
+            const usedRatio = data.aspect_ratio || aspectRatio;
+            const ratioSuffix = ' · ' + usedRatio;
+            const metaLabel = (flaws > 0
                 ? `Accurate image (${flaws} flaw${flaws !== 1 ? 's' : ''} fixed in ${iters} pass${iters !== 1 ? 'es' : ''})`
-                : 'Accurate image (no flaws detected)';
+                : 'Accurate image (no flaws detected)') + ratioSuffix;
             const assistantEntry = {
                 role: 'assistant',
                 imageUrl: data.image_url,
                 imageDataUrl: data.image_data_url || null,
                 filename: data.filename,
                 type: 'accurate_image',
+                aspectRatio: usedRatio,
                 meta: metaLabel
             };
             if (includeTrace && Array.isArray(data.accuracy_trace)) {
@@ -990,11 +1016,13 @@ async function uploadAndEditImage() {
     if (errorDiv) errorDiv.classList.remove('active');
     if (successDiv) successDiv.classList.remove('active');
 
+    const aspectRatio = getSelectedAspectRatio();
     try {
         const imageDataUrl = await readFileAsDataUrl(file);
         addConversationEntry({
             role: 'user',
             text: 'Uploaded image edit request: ' + changes,
+            aspectRatio: aspectRatio,
             type: 'edit_request'
         });
 
@@ -1005,7 +1033,8 @@ async function uploadAndEditImage() {
                 ...withActiveChatId({
                     filename: file.name || 'uploaded-image.png',
                     image_data_url: imageDataUrl,
-                    changes
+                    changes,
+                    aspect_ratio: aspectRatio
                 })
             })
         });
@@ -1014,6 +1043,7 @@ async function uploadAndEditImage() {
 
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
+            const usedRatio = data.aspect_ratio || aspectRatio;
             addConversationEntry({
                 role: 'assistant',
                 imageUrl: data.image_url,
@@ -1021,7 +1051,8 @@ async function uploadAndEditImage() {
                 filename: data.filename,
                 type: 'edited_image',
                 sourcePrompt: changes,
-                meta: 'Created image from upload'
+                aspectRatio: usedRatio,
+                meta: 'Created image from upload · ' + usedRatio
             });
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
             showSuccess('imageSuccess', 'Image created successfully from uploaded image.');
@@ -1063,9 +1094,11 @@ async function generateImage() {
     const errorDiv = document.getElementById('imageError');
     const successDiv = document.getElementById('imageSuccess');
 
+    const aspectRatio = getSelectedAspectRatio();
     addConversationEntry({
         role: 'user',
         text: prompt,
+        aspectRatio: aspectRatio,
         type: 'prompt'
     });
 
@@ -1082,7 +1115,8 @@ async function generateImage() {
             },
             body: JSON.stringify({
                 ...withActiveChatId({
-                    prompt: prompt
+                    prompt: prompt,
+                    aspect_ratio: aspectRatio
                 })
             })
         });
@@ -1091,6 +1125,7 @@ async function generateImage() {
 
         if (response.ok) {
             const displaySrc = data.image_data_url || data.image_url;
+            const usedRatio = data.aspect_ratio || aspectRatio;
             displayImage(displaySrc, data.image_data_url || null, data.image_url || null);
             addConversationEntry({
                 role: 'assistant',
@@ -1099,7 +1134,8 @@ async function generateImage() {
                 filename: data.filename,
                 type: 'image',
                 sourcePrompt: prompt,
-                meta: 'Generated image'
+                aspectRatio: usedRatio,
+                meta: 'Generated image · ' + usedRatio
             });
             showSuccess('imageSuccess', 'Image generated successfully!');
         } else {

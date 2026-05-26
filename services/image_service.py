@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import openai as openai_lib
 from PIL import Image
 
+from google.genai import types
+
 from backend.image_utils import (
     image_bytes_to_data_url,
     decode_image_data_url,
@@ -36,6 +38,20 @@ from prompts import (
     REFINED_REGEN_PROMPT_SYSTEM,
 )
 logger = logging.getLogger(__name__)
+
+
+ALLOWED_ASPECT_RATIOS = ("1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9")
+DEFAULT_ASPECT_RATIO = "16:9"
+
+
+def normalize_aspect_ratio(value: Optional[str]) -> str:
+    """Return a valid aspect ratio string, falling back to DEFAULT_ASPECT_RATIO."""
+    if not value:
+        return DEFAULT_ASPECT_RATIO
+    candidate = str(value).strip()
+    if candidate in ALLOWED_ASPECT_RATIOS:
+        return candidate
+    return DEFAULT_ASPECT_RATIO
 
 
 def _extract_gemini_usage(response: Any) -> Dict[str, Any]:
@@ -83,7 +99,10 @@ def _extract_openai_usage(response: Any) -> Dict[str, Any]:
     }
 
 
-def generate_image(prompt: str) -> Tuple[str, bytes, str, Dict[str, Any]]:
+def generate_image(
+    prompt: str,
+    aspect_ratio: Optional[str] = None,
+) -> Tuple[str, bytes, str, Dict[str, Any]]:
     """
     Generate an image using Gemini. Returns (filename, image_bytes, image_data_url, usage).
     `usage` is a dict with prompt_tokens / completion_tokens / total_tokens keys
@@ -93,9 +112,16 @@ def generate_image(prompt: str) -> Tuple[str, bytes, str, Dict[str, Any]]:
     if not state.gemini_client:
         raise ValueError("Gemini client not initialized")
 
+    ratio = normalize_aspect_ratio(aspect_ratio)
     response = state.gemini_client.models.generate_content(
         model="gemini-3-pro-image-preview",
-        contents=[prompt],
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio=ratio,
+            ),
+        ),
     )
     usage = _extract_gemini_usage(response)
 
@@ -194,6 +220,7 @@ def edit_image(
     trace_step_id: Optional[str] = None,
     trace_title: Optional[str] = None,
     preserve_visual_identity: bool = False,
+    aspect_ratio: Optional[str] = None,
 ) -> Tuple[str, bytes, str, Dict[str, Any]]:
     """
     Edit an existing image with Gemini.
@@ -209,10 +236,17 @@ def edit_image(
         + f"Changes: {changes}"
         + (EDIT_VISUAL_CONTINUITY if preserve_visual_identity else "")
     )
+    ratio = normalize_aspect_ratio(aspect_ratio)
     try:
         response = state.gemini_client.models.generate_content(
             model="gemini-3-pro-image-preview",
             contents=[prompt, image],
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(
+                    aspect_ratio=ratio,
+                ),
+            ),
         )
     except Exception as api_error:
         raise ValueError(f"Error calling Gemini API: {str(api_error)}") from api_error
@@ -407,6 +441,7 @@ def get_accurate_image(
     image_data_url: Optional[str] = None,
     original_prompt: Optional[str] = None,
     collect_trace: bool = False,
+    aspect_ratio: Optional[str] = None,
 ) -> Tuple[str, bytes, str, int, int, Optional[List[Dict[str, Any]]], Dict[str, Any]]:
     """
     Two-stage accuracy pipeline:
@@ -430,6 +465,8 @@ def get_accurate_image(
     """
     MAX_FLAWS_PER_PROMPT = 3
     MAX_STRUCTURAL_ITERATIONS = 4  # structural batches (up to 12 structural flaws addressed)
+
+    ratio = normalize_aspect_ratio(aspect_ratio)
 
     if not state.gemini_client:
         raise ValueError("Gemini client not initialized")
@@ -694,6 +731,7 @@ def get_accurate_image(
                 f"Gemini edit — {pass_kind} ({i + 1}/{len(correction_prompts)})"
             ),
             preserve_visual_identity=True,
+            aspect_ratio=ratio,
         )
         _accumulate("gemini", _gem_usage)
 
@@ -731,6 +769,7 @@ def refined_prompt_regenerate_image(
     image_data_url: Optional[str] = None,
     original_prompt: Optional[str] = None,
     collect_trace: bool = False,
+    aspect_ratio: Optional[str] = None,
 ) -> Tuple[str, bytes, str, str, str, Optional[List[Dict[str, Any]]], Dict[str, Any]]:
     """
     Vision QA (OpenAI) → refined full prompt (OpenAI text) → new image (Gemini).
@@ -829,7 +868,9 @@ def refined_prompt_regenerate_image(
     if not refined_prompt:
         raise ValueError("Refined prompt generation returned empty text")
 
-    gen_filename, gen_bytes, gen_data_url, gen_usage = generate_image(refined_prompt)
+    gen_filename, gen_bytes, gen_data_url, gen_usage = generate_image(
+        refined_prompt, aspect_ratio=aspect_ratio
+    )
     _accumulate("gemini", gen_usage)
 
     if trace is not None:
