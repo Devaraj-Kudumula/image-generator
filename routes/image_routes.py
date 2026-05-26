@@ -32,12 +32,15 @@ def register(app):
                 list(data.keys()) if data else 'None',
             )
             prompt = data.get('prompt', '')
+            aspect_ratio = image_service.normalize_aspect_ratio(
+                data.get('aspect_ratio')
+            )
 
             if not prompt:
                 logger.warning("Request missing prompt")
                 return jsonify({'error': 'Prompt is required'}), 400
 
-            logger.info("Prompt length: %d", len(prompt))
+            logger.info("Prompt length: %d, aspect_ratio: %s", len(prompt), aspect_ratio)
 
             if not config.GOOGLE_API_KEY:
                 logger.error("Google API key not configured")
@@ -56,7 +59,7 @@ def register(app):
             logger.info("Calling Gemini API...")
             api_start = time.time()
             filename, image_bytes, image_data_url, gemini_usage = image_service.generate_image(
-                prompt
+                prompt, aspect_ratio=aspect_ratio
             )
             api_time = time.time() - api_start
             logger.info("Gemini API response received in %.2fs", api_time)
@@ -77,6 +80,7 @@ def register(app):
                 'image_url': image_url,
                 'filename': filename,
                 'image_data_url': image_data_url,
+                'aspect_ratio': aspect_ratio,
                 'success': True,
                 'usage': {'gemini': gemini_usage or {}},
             })
@@ -137,6 +141,9 @@ def register(app):
             filename = data.get('filename', '')
             changes = data.get('changes', '')
             image_data_url = data.get('image_data_url', '')
+            aspect_ratio = image_service.normalize_aspect_ratio(
+                data.get('aspect_ratio')
+            )
 
             if not filename and not image_data_url:
                 logger.warning("Request missing filename and image_data_url")
@@ -171,7 +178,10 @@ def register(app):
             try:
                 new_filename, edited_bytes, edited_image_data_url, gemini_usage = (
                     image_service.edit_image(
-                        filename, changes, image_data_url or None
+                        filename,
+                        changes,
+                        image_data_url or None,
+                        aspect_ratio=aspect_ratio,
                     )
                 )
             except ValueError as e:
@@ -201,6 +211,7 @@ def register(app):
                 'image_url': image_url,
                 'filename': new_filename,
                 'image_data_url': edited_image_data_url,
+                'aspect_ratio': aspect_ratio,
                 'success': True,
                 'usage': {'gemini': gemini_usage or {}},
             })
@@ -238,6 +249,9 @@ def register(app):
             image_data_url = data.get('image_data_url', '')
             original_prompt = data.get('original_prompt', '') or data.get('prompt', '')
             include_trace = bool(data.get('include_trace'))
+            aspect_ratio = image_service.normalize_aspect_ratio(
+                data.get('aspect_ratio')
+            )
 
             if not filename and not image_data_url:
                 logger.warning("Request missing filename and image_data_url")
@@ -272,6 +286,7 @@ def register(app):
                     image_data_url or None,
                     original_prompt or None,
                     collect_trace=include_trace,
+                    aspect_ratio=aspect_ratio,
                 )
             except ValueError as e:
                 msg = str(e)
@@ -299,6 +314,7 @@ def register(app):
                 'image_url': image_url,
                 'filename': final_filename,
                 'image_data_url': final_data_url,
+                'aspect_ratio': aspect_ratio,
                 'flaws_detected': flaws_count,
                 'iterations': iterations,
                 'success': True,
@@ -337,6 +353,9 @@ def register(app):
             image_data_url = (data or {}).get('image_data_url', '')
             original_prompt = (data or {}).get('original_prompt', '') or (data or {}).get('prompt', '')
             include_trace = bool((data or {}).get('include_trace'))
+            aspect_ratio = image_service.normalize_aspect_ratio(
+                (data or {}).get('aspect_ratio')
+            )
 
             if not filename and not image_data_url:
                 return jsonify({
@@ -369,6 +388,7 @@ def register(app):
                     image_data_url or None,
                     original_prompt or None,
                     collect_trace=include_trace,
+                    aspect_ratio=aspect_ratio,
                 )
             except ValueError as e:
                 msg = str(e)
@@ -397,6 +417,7 @@ def register(app):
                 'image_url': image_url,
                 'filename': final_filename,
                 'image_data_url': final_data_url,
+                'aspect_ratio': aspect_ratio,
                 'refined_prompt': refined_prompt,
                 'vision_analysis': vision_analysis,
                 'success': True,

@@ -38,6 +38,14 @@
     let nextMessageId = 1;
     let nextImageId = 1;
 
+    const AI_ALLOWED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'];
+    const AI_DEFAULT_ASPECT_RATIO = '16:9';
+    function getSelectedAspectRatio() {
+        const el = document.getElementById('aspectRatio');
+        const v = el && el.value ? String(el.value).trim() : '';
+        return AI_ALLOWED_ASPECT_RATIOS.indexOf(v) >= 0 ? v : AI_DEFAULT_ASPECT_RATIO;
+    }
+
     function createSession(name) {
         const id = nextSessionId++;
         const session = {
@@ -252,9 +260,13 @@
         }
 
         if (previewMeta) {
-            previewMeta.textContent = latest
-                ? ('Updated ' + new Date(latest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
-                : 'No image generated yet';
+            if (latest) {
+                const ts = new Date(latest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                previewMeta.textContent = 'Updated ' + ts
+                    + (latest.aspectRatio ? ' · ' + latest.aspectRatio : '');
+            } else {
+                previewMeta.textContent = 'No image generated yet';
+            }
         }
 
         const latestPromptWrap = document.getElementById('aiLatestViewPromptWrap');
@@ -303,6 +315,12 @@
                     const promptText = img.prompt || '';
                     cap.textContent = promptText.slice(0, 80) + (promptText.length > 80 ? '…' : '');
                     item.appendChild(cap);
+                    if (img.aspectRatio) {
+                        const tag = document.createElement('span');
+                        tag.className = 'aspect-ratio-tag';
+                        tag.textContent = 'Aspect: ' + img.aspectRatio;
+                        item.appendChild(tag);
+                    }
                     const pTrim = promptText.trim();
                     if (pTrim) {
                         const vp = document.createElement('button');
@@ -613,12 +631,14 @@
         showImageActionLoading('Generating image…');
         clearImageError();
 
+        const aspectRatio = getSelectedAspectRatio();
         try {
             const response = await fetch('/generate-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt,
+                    aspect_ratio: aspectRatio,
                     session_id: 'ai_chat_' + session.id,
                 }),
             });
@@ -633,6 +653,7 @@
                 imageUrl: data.image_url || null,
                 imageDataUrl: data.image_data_url || null,
                 filename: data.filename || null,
+                aspectRatio: data.aspect_ratio || aspectRatio,
                 createdAt: Date.now(),
                 fromMessageId: messageId,
                 kind: 'generated',
@@ -670,6 +691,7 @@
         try {
             const filename = latest.filename
                 || (latest.imageUrl ? latest.imageUrl.split('/').pop() : null);
+            const aspectRatio = getSelectedAspectRatio();
             const response = await fetch('/edit-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -677,6 +699,7 @@
                     filename,
                     image_data_url: latest.imageDataUrl || latest.imageUrl,
                     changes,
+                    aspect_ratio: aspectRatio,
                     session_id: 'ai_chat_' + session.id,
                 }),
             });
@@ -689,6 +712,7 @@
                 imageUrl: data.image_url || null,
                 imageDataUrl: data.image_data_url || null,
                 filename: data.filename || null,
+                aspectRatio: data.aspect_ratio || aspectRatio,
                 createdAt: Date.now(),
                 kind: 'edited',
                 parentImageId: latest.id,
@@ -723,6 +747,7 @@
         try {
             const filename = latest.filename
                 || (latest.imageUrl ? latest.imageUrl.split('/').pop() : null);
+            const aspectRatio = getSelectedAspectRatio();
             const response = await fetch('/get-accurate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -731,6 +756,7 @@
                     image_data_url: latest.imageDataUrl || latest.imageUrl,
                     original_prompt: latest.prompt || '',
                     include_trace: !!includeTrace,
+                    aspect_ratio: aspectRatio,
                     session_id: 'ai_chat_' + session.id,
                 }),
             });
@@ -739,9 +765,10 @@
 
             const flaws = data.flaws_detected || 0;
             const iters = data.iterations || 0;
-            const meta = flaws > 0
+            const usedRatio = data.aspect_ratio || aspectRatio;
+            const meta = (flaws > 0
                 ? `Accurate image (${flaws} flaw${flaws !== 1 ? 's' : ''} fixed in ${iters} pass${iters !== 1 ? 'es' : ''})`
-                : 'Accurate image (no flaws detected)';
+                : 'Accurate image (no flaws detected)') + ' · ' + usedRatio;
 
             session.images.push({
                 id: nextImageId++,
@@ -749,6 +776,7 @@
                 imageUrl: data.image_url || null,
                 imageDataUrl: data.image_data_url || null,
                 filename: data.filename || null,
+                aspectRatio: usedRatio,
                 createdAt: Date.now(),
                 kind: 'accurate',
                 meta,
@@ -785,6 +813,7 @@
         try {
             const filename = latest.filename
                 || (latest.imageUrl ? latest.imageUrl.split('/').pop() : null);
+            const aspectRatio = getSelectedAspectRatio();
             const response = await fetch('/refined-prompt-image', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -792,6 +821,7 @@
                     filename,
                     image_data_url: latest.imageDataUrl || latest.imageUrl,
                     original_prompt: latest.prompt || '',
+                    aspect_ratio: aspectRatio,
                     session_id: 'ai_chat_' + session.id,
                 }),
             });
@@ -799,15 +829,17 @@
             if (!response.ok) throw new Error(data.error || 'Failed refined prompt regeneration');
 
             const refined = String(data.refined_prompt || '').trim();
+            const usedRatio = data.aspect_ratio || aspectRatio;
             session.images.push({
                 id: nextImageId++,
                 prompt: refined || latest.prompt || '',
                 imageUrl: data.image_url || null,
                 imageDataUrl: data.image_data_url || null,
                 filename: data.filename || null,
+                aspectRatio: usedRatio,
                 createdAt: Date.now(),
                 kind: 'refined_prompt',
-                meta: 'Refined prompt image (vision QA → GPT → Gemini)',
+                meta: 'Refined prompt image (vision QA → GPT → Gemini) · ' + usedRatio,
                 parentImageId: latest.id,
             });
             renderImages();

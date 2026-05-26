@@ -1166,6 +1166,54 @@ html.theme-dark .doc-chat-messages {
     gap: 10px;
 }
 
+.aspect-ratio-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    font-size: 0.86rem;
+}
+
+.aspect-ratio-label {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.aspect-ratio-select {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-input);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font: inherit;
+    min-width: 170px;
+}
+
+.aspect-ratio-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--shadow-focus);
+    background: var(--bg-input-focus);
+}
+
+.aspect-ratio-hint {
+    color: var(--text-muted-3);
+    font-size: 0.78rem;
+    flex: 1 1 200px;
+}
+
+.aspect-ratio-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-input);
+    font-size: 0.72rem;
+    margin-left: 6px;
+}
+
 .upload-file-input {
     width: 100%;
     border: 1px solid var(--border-input);
