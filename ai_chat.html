@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Chat — AI Medical Image Generator</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
     <script>
         (function() {
             var saved = localStorage.getItem('theme');
@@ -126,12 +126,16 @@
                             Hover any AI reply and click <strong>Generate image</strong> to push it here.
                         </div>
                         <img id="aiImagePreview" class="image-preview-image" alt="Latest image generated from this chat" />
+                        <div class="message-image-actions" id="aiCanvasActions" hidden>
+                            <button type="button" class="rag-btn rag-btn-primary inline-edit-canvas-btn" id="aiEditCanvasBtn">Edit in Canvas</button>
+                        </div>
                         <div class="ai-image-card-controls" id="aiImageControls" hidden>
                             <div class="ai-image-card-caption">Generated image</div>
                             <div class="message-edit-label">Suggest changes to this image</div>
                             <textarea id="aiImageChanges" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea>
                             <div class="inline-edit-actions inline-accurate-actions">
                                 <button type="button" class="rag-btn rag-btn-primary" id="aiApplyChangesBtn">Apply changes</button>
+                                <button type="button" class="rag-btn rag-btn-secondary inline-edit-canvas-btn" id="aiEditCanvasBtnInline">Edit in Canvas</button>
                                 <button type="button" class="rag-btn rag-btn-secondary" id="aiGetAccurateBtn">Get Accurate</button>
                                 <button type="button" class="rag-btn rag-btn-secondary" id="aiGetAccurateTraceBtn">Get Accurate + log</button>
                                 <button type="button" class="rag-btn rag-btn-secondary" id="aiRefinedPromptImageBtn">Refined prompt image</button>
@@ -186,7 +190,42 @@
             </div>
         </div>
 
-        <script src="/static/ai_chat.js"></script>
+        <div id="canvasEditorOverlay" class="canvas-editor-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+            <div class="canvas-editor-shell">
+                <header class="canvas-editor-header">
+                    <div class="canvas-editor-title-group">
+                        <h2 class="canvas-editor-title">Edit in Canvas</h2>
+                        <p class="canvas-editor-subtitle" id="canvasEditorSubtitle">Vectorizing image…</p>
+                    </div>
+                    <button type="button" class="canvas-editor-close" id="canvasEditorCloseBtn" aria-label="Close canvas editor">&times;</button>
+                </header>
+                <div class="canvas-editor-toolbar" id="canvasEditorToolbar" hidden>
+                    <button type="button" class="canvas-tool-btn" data-tool="select">Select</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="text">Add text</button>
+                    <label class="canvas-tool-color-wrap"><span class="canvas-tool-label">Color</span><input type="color" id="canvasFillColor" value="#6366f1" /></label>
+                    <button type="button" class="canvas-tool-btn" data-tool="delete">Delete</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="forward">Forward</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="backward">Back</button>
+                    <span class="canvas-toolbar-divider"></span>
+                    <button type="button" class="canvas-tool-btn" data-tool="zoom-out">−</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="zoom-reset">Fit</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="zoom-in">+</button>
+                    <span class="canvas-toolbar-divider"></span>
+                    <button type="button" class="canvas-tool-btn canvas-tool-secondary" data-tool="download-svg">SVG</button>
+                    <button type="button" class="canvas-tool-btn canvas-tool-secondary" data-tool="download-png">PNG</button>
+                    <button type="button" class="canvas-tool-btn canvas-tool-primary" data-tool="save">Save to chat</button>
+                </div>
+                <div class="canvas-editor-body">
+                    <div class="canvas-editor-loading" id="canvasEditorLoading"><div class="spinner"></div><p>Converting image to editable vectors…</p></div>
+                    <div class="canvas-editor-error" id="canvasEditorError" hidden></div>
+                    <div class="canvas-editor-workspace" id="canvasEditorWorkspace" hidden><canvas id="fabricCanvas"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+        <script src="/static/canvas-editor.js?v=2"></script>
+        <script src="/static/ai_chat.js?v=2"></script>
     </div>
 </body>
 </html>

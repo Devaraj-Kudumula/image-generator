@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload &amp; edit — AI Medical Image Generator</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=2">
     <script>
         (function() {
             var saved = localStorage.getItem('theme');
@@ -81,8 +81,13 @@
                     <div class="section">
                         <div class="image-preview-card">
                             <div class="image-preview-header">
-                                <div class="image-preview-title">Latest image preview</div>
-                                <div class="image-preview-meta" id="imagePreviewMeta">No image generated yet</div>
+                                <div>
+                                    <div class="image-preview-title">Latest image preview</div>
+                                    <div class="image-preview-meta" id="imagePreviewMeta">No image generated yet</div>
+                                </div>
+                                <div class="image-preview-actions" id="imagePreviewActions" hidden>
+                                    <button type="button" class="rag-btn rag-btn-primary inline-edit-canvas-btn" id="previewEditCanvasBtn">Edit in Canvas</button>
+                                </div>
                             </div>
                             <div class="image-preview-empty" id="imagePreviewEmpty">
                                 Create an image from your upload to see a large preview here. Versions stay in the conversation history below.
@@ -123,6 +128,47 @@
             </div>
         </main>
 
+        <div id="canvasEditorOverlay" class="canvas-editor-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+            <div class="canvas-editor-shell">
+                <header class="canvas-editor-header">
+                    <div class="canvas-editor-title-group">
+                        <h2 class="canvas-editor-title">Edit in Canvas</h2>
+                        <p class="canvas-editor-subtitle" id="canvasEditorSubtitle">Vectorizing image…</p>
+                    </div>
+                    <button type="button" class="canvas-editor-close" id="canvasEditorCloseBtn" aria-label="Close canvas editor">&times;</button>
+                </header>
+                <div class="canvas-editor-toolbar" id="canvasEditorToolbar" hidden>
+                    <button type="button" class="canvas-tool-btn" data-tool="select" title="Select and move">Select</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="text" title="Add text">Add text</button>
+                    <label class="canvas-tool-color-wrap" title="Fill color for selection">
+                        <span class="canvas-tool-label">Color</span>
+                        <input type="color" id="canvasFillColor" value="#6366f1" />
+                    </label>
+                    <button type="button" class="canvas-tool-btn" data-tool="delete" title="Delete selection">Delete</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="forward" title="Bring forward">Forward</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="backward" title="Send backward">Back</button>
+                    <span class="canvas-toolbar-divider"></span>
+                    <button type="button" class="canvas-tool-btn" data-tool="zoom-out" title="Zoom out">−</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="zoom-reset" title="Fit to view">Fit</button>
+                    <button type="button" class="canvas-tool-btn" data-tool="zoom-in" title="Zoom in">+</button>
+                    <span class="canvas-toolbar-divider"></span>
+                    <button type="button" class="canvas-tool-btn canvas-tool-secondary" data-tool="download-svg">SVG</button>
+                    <button type="button" class="canvas-tool-btn canvas-tool-secondary" data-tool="download-png">PNG</button>
+                    <button type="button" class="canvas-tool-btn canvas-tool-primary" data-tool="save">Save to chat</button>
+                </div>
+                <div class="canvas-editor-body">
+                    <div class="canvas-editor-loading" id="canvasEditorLoading">
+                        <div class="spinner"></div>
+                        <p>Converting image to editable vectors…</p>
+                    </div>
+                    <div class="canvas-editor-error" id="canvasEditorError" hidden></div>
+                    <div class="canvas-editor-workspace" id="canvasEditorWorkspace" hidden>
+                        <canvas id="fabricCanvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="imageFullscreenOverlay" class="image-fullscreen-overlay" role="dialog" aria-modal="true" aria-hidden="true">
             <button type="button" class="image-fullscreen-close" aria-label="Close full-screen image" onclick="closeImageFullscreen()">
                 &times;
@@ -133,6 +179,8 @@
             </div>
         </div>
 
-        <script src="/static/app.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+        <script src="/static/canvas-editor.js?v=2"></script>
+        <script src="/static/app.js?v=2"></script>
 </body>
 </html>
