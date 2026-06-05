@@ -547,7 +547,7 @@ function renderConversation() {
             bubble.appendChild(editWrap);
         }
 
-        if (entry.role === 'assistant' && entry.imageUrl) {
+        if (entry.role === 'assistant' && (entry.imageUrl || entry.imageDataUrl)) {
             const displaySrc = entry.imageDataUrl || entry.imageUrl;
             const img = document.createElement('img');
             img.src = displaySrc;
@@ -565,14 +565,25 @@ function renderConversation() {
                 const tracePanel = buildAccuracyTracePanel(entry.accuracyTrace);
                 if (tracePanel) bubble.appendChild(tracePanel);
             }
+            const imageActions = document.createElement('div');
+            imageActions.className = 'message-image-actions';
+            const canvasActionBtn = document.createElement('button');
+            canvasActionBtn.type = 'button';
+            canvasActionBtn.className = 'rag-btn rag-btn-primary inline-edit-canvas-btn inline-open-canvas-btn';
+            canvasActionBtn.textContent = 'Edit in Canvas';
+            canvasActionBtn.onclick = () => openCanvasEditorForEntry(idx);
+            imageActions.appendChild(canvasActionBtn);
+            bubble.appendChild(imageActions);
             const inlineEdit = document.createElement('div');
             inlineEdit.className = 'message-edit-inline';
-            inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions inline-accurate-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-btn">Get Accurate</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-trace-btn">Get Accurate + log</button></div>';
+            inlineEdit.innerHTML = '<div class="message-edit-label">Suggest changes to this image</div><textarea class="inline-changes-textarea" rows="2" placeholder="e.g., zoom on lesion, adjust lighting..."></textarea><div class="inline-edit-actions inline-accurate-actions"><button type="button" class="rag-btn rag-btn-primary inline-apply-changes-btn">Apply changes</button><button type="button" class="rag-btn rag-btn-secondary inline-edit-canvas-btn inline-open-canvas-btn">Edit in Canvas</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-btn">Get Accurate</button><button type="button" class="rag-btn rag-btn-secondary inline-get-accurate-trace-btn">Get Accurate + log</button></div>';
             const changeTa = inlineEdit.querySelector('.inline-changes-textarea');
             const applyBtn = inlineEdit.querySelector('.inline-apply-changes-btn');
+            const canvasBtn = inlineEdit.querySelector('.inline-open-canvas-btn');
             const accurateBtn = inlineEdit.querySelector('.inline-get-accurate-btn');
             const accurateTraceBtn = inlineEdit.querySelector('.inline-get-accurate-trace-btn');
             applyBtn.onclick = () => applyChangesToImage(idx, changeTa.value.trim());
+            canvasBtn.onclick = () => openCanvasEditorForEntry(idx);
             accurateBtn.onclick = () => getAccurateImage(idx);
             accurateTraceBtn.onclick = () => getAccurateImage(idx, { includeTrace: true });
             bubble.appendChild(inlineEdit);
@@ -1149,6 +1160,69 @@ async function generateImage() {
     }
 }
 
+function openCanvasEditorForEntry(entryIndex) {
+    const entry = getHistoryEntryByIndex(entryIndex);
+    if (!entry || (!entry.imageUrl && !entry.imageDataUrl)) {
+        showError('imageError', 'This image cannot be opened in the canvas editor.');
+        return;
+    }
+    const filename = entry.filename || (entry.imageUrl ? entry.imageUrl.split('/').pop() : null);
+    const imageDataUrl = entry.imageDataUrl || entry.imageUrl;
+    if (typeof window.openCanvasEditor !== 'function') {
+        showError('imageError', 'Canvas editor failed to load. Refresh the page and try again.');
+        return;
+    }
+    window.openCanvasEditor({
+        filename: filename,
+        imageDataUrl: imageDataUrl,
+        onSave: function (pngDataUrl) {
+            saveCanvasEditToHistory(pngDataUrl);
+        },
+    });
+}
+
+function openCanvasEditorForCurrentPreview() {
+    const chat = getActiveChat();
+    if (!chat || (!chat.currentImageUrl && !chat.currentImageDataUrl)) {
+        showError('imageError', 'No image to edit in canvas.');
+        return;
+    }
+    const history = chat.history || [];
+    const lastImageEntry = [...history].reverse().find(function (e) {
+        return e && e.role === 'assistant' && (e.imageUrl || e.imageDataUrl);
+    });
+    if (lastImageEntry) {
+        const idx = history.lastIndexOf(lastImageEntry);
+        openCanvasEditorForEntry(idx);
+        return;
+    }
+    if (typeof window.openCanvasEditor === 'function') {
+        window.openCanvasEditor({
+            filename: null,
+            imageDataUrl: chat.currentImageDataUrl || chat.currentImageUrl,
+            onSave: function (pngDataUrl) {
+                saveCanvasEditToHistory(pngDataUrl);
+            },
+        });
+    }
+}
+
+function saveCanvasEditToHistory(pngDataUrl) {
+    if (!pngDataUrl) return;
+    const aspectRatio = getSelectedAspectRatio();
+    addConversationEntry({
+        role: 'assistant',
+        imageUrl: pngDataUrl,
+        imageDataUrl: pngDataUrl,
+        filename: null,
+        type: 'canvas_edited_image',
+        aspectRatio: aspectRatio,
+        meta: 'Canvas-edited image · ' + aspectRatio,
+    });
+    displayImage(pngDataUrl, pngDataUrl, null);
+    showSuccess('imageSuccess', 'Canvas edits saved to conversation history.');
+}
+
 function displayImage(imageSrc, imageDataUrl, canonicalUrl) {
     let chat = getActiveChat();
     if (!chat) {
@@ -1172,6 +1246,11 @@ function displayImage(imageSrc, imageDataUrl, canonicalUrl) {
         const now = new Date();
         const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         previewMeta.textContent = `Updated ${timeLabel}`;
+    }
+
+    const previewActions = document.getElementById('imagePreviewActions');
+    if (previewActions) {
+        previewActions.hidden = !imageSrc;
     }
 
     updateDownloadButtonVisibility();
@@ -1260,6 +1339,11 @@ function initImageInteractions() {
         });
     }
 
+    const previewEditCanvasBtn = document.getElementById('previewEditCanvasBtn');
+    if (previewEditCanvasBtn) {
+        previewEditCanvasBtn.addEventListener('click', openCanvasEditorForCurrentPreview);
+    }
+
     const conversationContainer = document.getElementById('conversationContainer');
     if (conversationContainer) {
         conversationContainer.addEventListener('click', (event) => {
@@ -1311,6 +1395,7 @@ window.askDocsQuestion = askDocsQuestion;
 window.clearDocChatHistory = clearDocChatHistory;
 window.downloadImage = downloadImage;
 window.closeImageFullscreen = closeImageFullscreen;
+window.openCanvasEditorForEntry = openCanvasEditorForEntry;
 
 document.addEventListener('DOMContentLoaded', initApp);
 window.addEventListener('beforeunload', function() {

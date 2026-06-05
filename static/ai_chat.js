@@ -294,6 +294,10 @@
         if (controls) {
             controls.hidden = !latest;
         }
+        const canvasActions = document.getElementById('aiCanvasActions');
+        if (canvasActions) {
+            canvasActions.hidden = !latest;
+        }
         const downloadBtn = document.getElementById('aiDownloadBtn');
         if (downloadBtn) downloadBtn.hidden = !latest;
 
@@ -671,6 +675,47 @@
         }
     }
 
+    function openCanvasEditorForLatest() {
+        const latest = getLatestImage();
+        if (!latest) {
+            showImageError('No image to edit in canvas.');
+            return;
+        }
+        if (typeof window.openCanvasEditor !== 'function') {
+            showImageError('Canvas editor failed to load. Refresh the page and try again.');
+            return;
+        }
+        const filename = latest.filename
+            || (latest.imageUrl ? latest.imageUrl.split('/').pop() : null);
+        const imageDataUrl = latest.imageDataUrl || latest.imageUrl;
+        window.openCanvasEditor({
+            filename: filename,
+            imageDataUrl: imageDataUrl,
+            onSave: function (pngDataUrl) {
+                saveCanvasEditToSession(pngDataUrl);
+            },
+        });
+    }
+
+    function saveCanvasEditToSession(pngDataUrl) {
+        const session = getActiveSession();
+        if (!session || !pngDataUrl) return;
+        const aspectRatio = getSelectedAspectRatio();
+        session.images.push({
+            id: nextImageId++,
+            prompt: 'Canvas edit',
+            imageUrl: null,
+            imageDataUrl: pngDataUrl,
+            filename: null,
+            aspectRatio: aspectRatio,
+            createdAt: Date.now(),
+            kind: 'canvas_edited',
+        });
+        renderImages();
+        renderHeader();
+        clearImageError();
+    }
+
     // ---------------- Apply changes ----------------
     async function applyChangesToLatest() {
         const session = getActiveSession();
@@ -1030,6 +1075,10 @@
 
         const applyBtn = document.getElementById('aiApplyChangesBtn');
         if (applyBtn) applyBtn.addEventListener('click', applyChangesToLatest);
+        const editCanvasBtn = document.getElementById('aiEditCanvasBtn');
+        if (editCanvasBtn) editCanvasBtn.addEventListener('click', openCanvasEditorForLatest);
+        const editCanvasInlineBtn = document.getElementById('aiEditCanvasBtnInline');
+        if (editCanvasInlineBtn) editCanvasInlineBtn.addEventListener('click', openCanvasEditorForLatest);
         const accurateBtn = document.getElementById('aiGetAccurateBtn');
         if (accurateBtn) accurateBtn.addEventListener('click', () => getAccurateLatest(false));
         const accurateTraceBtn = document.getElementById('aiGetAccurateTraceBtn');

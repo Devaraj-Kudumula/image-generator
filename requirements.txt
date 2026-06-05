@@ -16,3 +16,10 @@ pillow==12.1.1
 python-dotenv==1.0.0
 gunicorn==21.2.0
 pypdf==5.9.0
+vtracer==0.6.15
+scour==0.38.2
+opencv-contrib-python==4.10.0.84
+numpy>=1.24.0
+cairosvg>=2.7.0
+matplotlib>=3.8.0
+pytesseract>=0.3.10
