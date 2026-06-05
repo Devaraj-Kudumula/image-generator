@@ -18,6 +18,9 @@
     var baseCanvasHeight = 600;
     var saveCallback = null;
     var isOpen = false;
+    var currentSourceFilename = '';
+    var currentSourceImageDataUrl = '';
+    var isReconstructing = false;
 
     function getEl(id) {
         return document.getElementById(id);
@@ -284,6 +287,9 @@
                     document.body.removeChild(link);
                 }
                 break;
+            case 'ai-reconstruct':
+                runAiReconstruct();
+                break;
             case 'save':
                 if (typeof saveCallback === 'function') {
                     var dataUrl = exportPngDataUrl();
@@ -317,6 +323,7 @@
                 selection: true,
                 preserveObjectStacking: true,
                 backgroundColor: '#ffffff',
+                enableRetinaScaling: true,
             });
 
             fabric.loadSVGFromString(svgString, function (objects, options) {
@@ -345,13 +352,67 @@
                     baseCanvasHeight = Math.ceil(vb.height);
                 }
 
+                function promoteTextToIText(obj, callback) {
+                    if (!obj || obj.type !== 'text') {
+                        callback(obj);
+                        return;
+                    }
+                    var targetWidth = obj._ocrTargetWidth || null;
+                    var iText = new fabric.IText(obj.text || '', {
+                        left: obj.left,
+                        top: obj.top,
+                        fontFamily: obj.fontFamily || 'Arial, Helvetica, sans-serif',
+                        fontSize: obj.fontSize || 16,
+                        fontWeight: obj.fontWeight || 'normal',
+                        fill: obj.fill || '#1a1d24',
+                        scaleX: obj.scaleX,
+                        scaleY: obj.scaleY,
+                        angle: obj.angle,
+                        originX: obj.originX,
+                        originY: obj.originY,
+                        selectable: true,
+                        evented: true,
+                    });
+                    if (targetWidth && targetWidth > 0) {
+                        var measuredWidth = iText.getScaledWidth();
+                        if (measuredWidth > 0) {
+                            iText.set('scaleX', (targetWidth / measuredWidth) * (obj.scaleX || 1));
+                        }
+                    }
+                    callback(iText);
+                }
+
+                var pending = objects.length;
+                var readyObjects = [];
+
                 objects.forEach(function (obj) {
-                    fabricCanvas.add(obj);
+                    promoteTextToIText(obj, function (ready) {
+                        ready.set({
+                            selectable: true,
+                            evented: true,
+                        });
+                        readyObjects.push(ready);
+                        pending -= 1;
+                        if (pending === 0) {
+                            readyObjects.forEach(function (item) {
+                                fabricCanvas.add(item);
+                            });
+                            fabricCanvas.renderAll();
+                            fitCanvasToContent();
+                            resolve();
+                        }
+                    });
                 });
-                fabricCanvas.renderAll();
-                fitCanvasToContent();
-                resolve();
             }, function (_el, obj) {
+                if (_el && _el.getAttribute && obj && obj.type === 'text') {
+                    var textLengthAttr = _el.getAttribute('textLength');
+                    if (textLengthAttr) {
+                        var targetWidth = parseFloat(textLengthAttr);
+                        if (!isNaN(targetWidth) && targetWidth > 0) {
+                            obj._ocrTargetWidth = targetWidth;
+                        }
+                    }
+                }
                 obj.set({
                     selectable: true,
                     evented: true,
@@ -384,10 +445,71 @@
         return data.svg;
     }
 
+    async function fetchRefineSvg(filename, imageDataUrl) {
+        var payload = { include_trace: false };
+        if (imageDataUrl) {
+            payload.image_data_url = imageDataUrl;
+        }
+        if (filename) {
+            payload.filename = filename;
+        }
+
+        var response = await fetch('/refine-svg-codegen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        var data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'AI reconstruction failed');
+        }
+        if (!data.svg) {
+            throw new Error('Server returned no SVG');
+        }
+        return data;
+    }
+
+    async function runAiReconstruct() {
+        if (isReconstructing) return;
+        if (!currentSourceFilename && !currentSourceImageDataUrl) {
+            showError('No source image available for reconstruction.');
+            return;
+        }
+
+        isReconstructing = true;
+        setLoading(true, 'Reconstructing diagram with AI…');
+        if (subtitleEl) {
+            subtitleEl.textContent = 'AI is writing matplotlib code and refining the layout…';
+        }
+
+        try {
+            var result = await fetchRefineSvg(
+                currentSourceFilename,
+                currentSourceImageDataUrl
+            );
+            await loadSvgIntoCanvas(result.svg);
+            var iterMsg = result.iterations
+                ? 'Reconstructed in ' + result.iterations + ' iteration(s). Edit shapes or save when ready.'
+                : 'Reconstructed. Edit shapes or save when ready.';
+            setReady(iterMsg);
+        } catch (err) {
+            setReady('Select shapes to move, recolor, or transform. Add text with Add text.');
+            if (errorEl) {
+                errorEl.hidden = false;
+                errorEl.textContent = err.message || 'AI reconstruction failed';
+            }
+        } finally {
+            isReconstructing = false;
+        }
+    }
+
     function closeCanvasEditor() {
         destroyFabricCanvas();
         hideOverlay();
         saveCallback = null;
+        currentSourceFilename = '';
+        currentSourceImageDataUrl = '';
+        isReconstructing = false;
         setLoading(true, 'Converting image to editable vectors…');
         if (subtitleEl) subtitleEl.textContent = 'Vectorizing image…';
     }
@@ -416,6 +538,8 @@
 
         var filename = options.filename || '';
         var imageDataUrl = options.imageDataUrl || '';
+        currentSourceFilename = filename;
+        currentSourceImageDataUrl = imageDataUrl;
 
         if (!filename && !imageDataUrl) {
             showError('No image reference provided.');

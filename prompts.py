@@ -1114,3 +1114,63 @@ REFINED_REGEN_PROMPT_SYSTEM = (
     "invent contradictory anatomy.\n"
     "Output only the final prompt text — no preamble, headings, or bullet labels."
 )
+
+# =============================================================================
+# Diagram refine via matplotlib codegen (Edit in Canvas → Reconstruct AI)
+#       • services/diagram_refine_service.py → refine_image_to_vector()
+#
+#     Vision LLM writes matplotlib Python to redraw a diagram; we execute it,
+#     render PNG+SVG, feed both images back, loop until STATUS: DONE.
+# =============================================================================
+
+DIAGRAM_REFINE_SYSTEM = (
+    "You are an expert at recreating diagrams, flowcharts, network graphs, and "
+    "simple scientific figures using matplotlib in Python.\n\n"
+    "Your job is to write Python code that redraws a target diagram as clean, "
+    "editable vector graphics. Use matplotlib primitives (patches, FancyBboxPatch, "
+    "FancyArrowPatch, text, lines) to place boxes, arrows, labels, and connectors "
+    "at explicit coordinates — do NOT try to match every pixel of a photograph.\n\n"
+    "RULES:\n"
+    "• Your code MUST create a matplotlib Figure named `fig` (and typically `ax = fig.add_subplot(111)`).\n"
+    "• Use ONLY: matplotlib, matplotlib.pyplot, matplotlib.patches, numpy, math.\n"
+    "• Do NOT use file I/O, network, subprocess, os, sys, or any external data.\n"
+    "• Set ax.set_xlim / ax.set_ylim to frame the content; use ax.set_aspect('equal') when helpful.\n"
+    "• Turn off axis ticks/spines unless they are part of the diagram.\n"
+    "• Match layout, text content, box positions, arrow directions, and colors approximately.\n"
+    "• Prefer readable font sizes (10–14pt) and consistent spacing.\n"
+    "• Output format:\n"
+    "  1) A brief analysis (2–5 lines) of what you see or what you changed.\n"
+    "  2) A fenced ```python code block containing the COMPLETE runnable script "
+    "(must define `fig`).\n"
+    "  3) A final line: STATUS: DONE  or  STATUS: CONTINUE\n"
+    "    — use DONE when the render closely matches the target; CONTINUE if more "
+    "refinement is needed."
+)
+
+DIAGRAM_REFINE_INIT_USER = (
+    "Recreate this diagram in matplotlib. Study the image carefully: identify every "
+    "box, label, arrow, connector, and color. Write complete Python code that builds "
+    "the same layout using explicit coordinates.\n\n"
+    "Return your analysis, a ```python code block with the full script (must define "
+    "`fig`), and STATUS: CONTINUE (first pass) or STATUS: DONE if you are confident."
+)
+
+DIAGRAM_REFINE_ITER_USER = (
+    "Compare the TARGET diagram (first image) with your CURRENT RENDER (second image).\n\n"
+    "List specific differences: missing elements, wrong positions, misaligned arrows, "
+    "incorrect text, wrong colors, spacing issues.\n\n"
+    "Then return a COMPLETE corrected ```python script (must define `fig`) that fixes "
+    "those issues. End with STATUS: DONE if the render now closely matches the target, "
+    "or STATUS: CONTINUE if further refinement is needed."
+)
+
+DIAGRAM_REFINE_EXEC_ERROR_USER = (
+    "Your previous matplotlib code failed to execute:\n\n"
+    "{error}\n\n"
+    "Fix the code and return a COMPLETE corrected ```python script (must define `fig`). "
+    "End with STATUS: CONTINUE."
+)
+
+DIAGRAM_REFINE_INSTRUCTIONS_SUFFIX = (
+    "\n\nAdditional user instructions:\n{instructions}"
+)

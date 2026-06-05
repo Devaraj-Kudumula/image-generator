@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 import config
+from services import ocr_text_service
 from services.vectorize_backends.paid_backends import (
     SUPPORTED as PAID_BACKENDS,
     vectorize_via_paid_backend,
@@ -298,11 +299,8 @@ def _quantize_colors(image: Image.Image, n_colors: int) -> Image.Image:
     return Image.fromarray(quantized, mode='RGB')
 
 
-def _preprocess_for_tracing(image: Image.Image) -> Image.Image:
-    """
-    Prep before vtracer: alpha flatten, optional legacy denoise, edge-preserving
-    smooth, optional light sharpen, color quantization.
-    """
+def _flatten_only(image: Image.Image) -> Image.Image:
+    """Alpha flatten and RGB conversion only (before resize / OCR)."""
     if config.TRACE_FLATTEN_ALPHA:
         image = _flatten_alpha(image, config.TRACE_ALPHA_THRESHOLD)
     elif image.mode not in ("RGB", "RGBA"):
@@ -314,7 +312,17 @@ def _preprocess_for_tracing(image: Image.Image) -> Image.Image:
 
     if image.mode == "RGBA":
         image = image.convert("RGB")
+    elif image.mode != "RGB":
+        image = image.convert("RGB")
 
+    return image
+
+
+def _smooth_quantize(image: Image.Image) -> Image.Image:
+    """
+    Edge-preserving smooth, optional denoise/sharpen, color quantization.
+    Run after OCR text masking so labels are not traced as blobs.
+    """
     if config.TRACE_DENOISE:
         image = image.filter(ImageFilter.MedianFilter(size=3))
 
@@ -335,19 +343,30 @@ def _preprocess_for_tracing(image: Image.Image) -> Image.Image:
     return image
 
 
+def _preprocess_for_tracing(image: Image.Image) -> Image.Image:
+    """Legacy full preprocess (flatten + smooth + quantize)."""
+    return _smooth_quantize(_flatten_only(image))
+
+
 def _image_to_png_bytes(image: Image.Image) -> bytes:
     buf = BytesIO()
     image.save(buf, format="PNG")
     return buf.getvalue()
 
 
-def _prepare_trace_image(image_bytes: bytes) -> Tuple[bytes, int, int]:
-    """Load, preprocess, and resize for tracing. Returns PNG bytes and dimensions."""
+def _prepare_trace_image(
+    image_bytes: bytes,
+) -> Tuple[bytes, int, int, List[Dict[str, Any]], Optional[Image.Image]]:
+    """
+    Load, resize to trace dimensions, OCR + mask text, smooth/quantize, trace.
+
+    Returns PNG bytes, width, height, OCR words, and clean resized image for colors.
+    """
     image = Image.open(BytesIO(image_bytes))
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA")
 
-    image = _preprocess_for_tracing(image)
+    image = _flatten_only(image)
 
     target_dim = config.TRACE_TARGET_DIMENSION if config.TRACE_UPSCALE_ENABLED else 0
     image, width, height = _resize_for_tracing(
@@ -357,7 +376,30 @@ def _prepare_trace_image(image_bytes: bytes) -> Tuple[bytes, int, int]:
         upscale_enabled=config.TRACE_UPSCALE_ENABLED,
     )
 
-    return _image_to_png_bytes(image), width, height
+    base_resized = image.copy()
+    ocr_words: List[Dict[str, Any]] = []
+
+    if config.TRACE_OCR_ENABLED and ocr_text_service.is_ocr_available():
+        ocr_words = ocr_text_service.extract_words(base_resized)
+        if ocr_words:
+            image = ocr_text_service.mask_text_regions(image, ocr_words)
+            logger.info("Masked %d OCR word region(s) before tracing", len(ocr_words))
+
+    image = _smooth_quantize(image)
+
+    return _image_to_png_bytes(image), width, height, ocr_words, base_resized
+
+
+def _inject_text_layer(
+    svg_str: str,
+    words: List[Dict[str, Any]],
+    color_image: Optional[Image.Image],
+) -> str:
+    if not words or color_image is None:
+        return svg_str
+    if not config.TRACE_OCR_ENABLED:
+        return svg_str
+    return ocr_text_service.inject_text_into_svg(svg_str, words, color_image)
 
 
 def _vtracer_kwargs() -> Dict[str, Any]:
@@ -564,6 +606,8 @@ def get_vectorize_settings() -> Dict[str, Any]:
         "trace_svg_scour": config.TRACE_SVG_SCOUR,
         "trace_svg_seam_fill": config.TRACE_SVG_SEAM_FILL,
         "trace_svg_min_path_area": config.TRACE_SVG_MIN_PATH_AREA,
+        "trace_ocr_enabled": config.TRACE_OCR_ENABLED,
+        "trace_ocr_available": ocr_text_service.is_ocr_available(),
         "vtracer": _vtracer_kwargs(),
         "is_serverless": config.IS_SERVERLESS,
     }
@@ -578,7 +622,7 @@ def _vectorize_vtracer(image_bytes: bytes) -> Tuple[str, int, int]:
             "vtracer is not installed. Add vtracer to requirements.txt and reinstall."
         ) from exc
 
-    png_bytes, width, height = _prepare_trace_image(image_bytes)
+    png_bytes, width, height, ocr_words, base_resized = _prepare_trace_image(image_bytes)
 
     try:
         svg = vtracer.convert_raw_image_to_svg(
@@ -598,6 +642,9 @@ def _vectorize_vtracer(image_bytes: bytes) -> Tuple[str, int, int]:
         raise ValueError("Vectorization produced invalid SVG")
 
     svg_str = _postprocess_svg(svg_str, width, height)
+    svg_str = _inject_text_layer(svg_str, ocr_words, base_resized)
+    if ocr_words:
+        logger.info("Injected %d OCR text element(s) into SVG", len(ocr_words))
     return svg_str, width, height
 
 
@@ -613,8 +660,9 @@ def _vectorize_core(image_bytes: bytes) -> Tuple[str, int, int]:
 
     if backend in PAID_BACKENDS:
         svg_str, paid_meta = vectorize_via_paid_backend(image_bytes, backend)
-        png_bytes, width, height = _prepare_trace_image(image_bytes)
+        _png_bytes, width, height, ocr_words, base_resized = _prepare_trace_image(image_bytes)
         svg_str = _postprocess_svg(svg_str, width, height)
+        svg_str = _inject_text_layer(svg_str, ocr_words, base_resized)
         logger.info(
             "Vectorized via %s (%dx%d) -> SVG length %d meta=%s",
             backend,

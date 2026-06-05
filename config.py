@@ -125,8 +125,8 @@ TRACE_DENOISE = os.getenv('TRACE_DENOISE', 'false').lower() in ('1', 'true', 'ye
 # Edge-preserving smoothing: bilateral | edge_preserving | none
 TRACE_SMOOTH_METHOD = os.getenv('TRACE_SMOOTH_METHOD', 'bilateral').strip().lower()
 TRACE_BILATERAL_D = int(os.getenv('TRACE_BILATERAL_D', '9'))
-TRACE_BILATERAL_SIGMA_COLOR = int(os.getenv('TRACE_BILATERAL_SIGMA_COLOR', '75'))
-TRACE_BILATERAL_SIGMA_SPACE = int(os.getenv('TRACE_BILATERAL_SIGMA_SPACE', '75'))
+TRACE_BILATERAL_SIGMA_COLOR = int(os.getenv('TRACE_BILATERAL_SIGMA_COLOR', '30'))
+TRACE_BILATERAL_SIGMA_SPACE = int(os.getenv('TRACE_BILATERAL_SIGMA_SPACE', '30'))
 TRACE_EDGE_PRESERVE_SIGMA_S = float(os.getenv('TRACE_EDGE_PRESERVE_SIGMA_S', '60'))
 TRACE_EDGE_PRESERVE_SIGMA_R = float(os.getenv('TRACE_EDGE_PRESERVE_SIGMA_R', '0.4'))
 
@@ -139,17 +139,17 @@ TRACE_SHARPEN_THRESHOLD = int(os.getenv('TRACE_SHARPEN_THRESHOLD', '2'))
 TRACE_QUANTIZE_ENABLED = os.getenv('TRACE_QUANTIZE_ENABLED', 'true').lower() in (
     '1', 'true', 'yes',
 )
-TRACE_QUANTIZE_COLORS = int(os.getenv('TRACE_QUANTIZE_COLORS', '20'))
+TRACE_QUANTIZE_COLORS = int(os.getenv('TRACE_QUANTIZE_COLORS', '14'))
 TRACE_QUANTIZE_SAMPLE_MAX = int(os.getenv('TRACE_QUANTIZE_SAMPLE_MAX', '12000'))
 
 TRACE_SVG_SCOUR = os.getenv('TRACE_SVG_SCOUR', 'true').lower() in ('1', 'true', 'yes')
 TRACE_SVG_SEAM_FILL = os.getenv('TRACE_SVG_SEAM_FILL', 'true').lower() in ('1', 'true', 'yes')
-TRACE_SVG_SEAM_STROKE_WIDTH = float(os.getenv('TRACE_SVG_SEAM_STROKE_WIDTH', '0.35'))
-TRACE_SVG_MIN_PATH_AREA = float(os.getenv('TRACE_SVG_MIN_PATH_AREA', '4.0'))
+TRACE_SVG_SEAM_STROKE_WIDTH = float(os.getenv('TRACE_SVG_SEAM_STROKE_WIDTH', '0.25'))
+TRACE_SVG_MIN_PATH_AREA = float(os.getenv('TRACE_SVG_MIN_PATH_AREA', '8.0'))
 
 # Retuned defaults for cleaner stacked output
 VTRACER_COLOR_PRECISION = int(os.getenv('VTRACER_COLOR_PRECISION', '7'))
-VTRACER_LAYER_DIFFERENCE = int(os.getenv('VTRACER_LAYER_DIFFERENCE', '20'))
+VTRACER_LAYER_DIFFERENCE = int(os.getenv('VTRACER_LAYER_DIFFERENCE', '24'))
 VTRACER_FILTER_SPECKLE = int(os.getenv('VTRACER_FILTER_SPECKLE', '6'))
 VTRACER_PATH_PRECISION = int(os.getenv('VTRACER_PATH_PRECISION', '8'))
 VTRACER_LENGTH_THRESHOLD = float(os.getenv('VTRACER_LENGTH_THRESHOLD', '4.5'))
@@ -170,3 +170,19 @@ RECRAFT_VECTORIZE_URL = os.getenv(
 ).strip()
 
 VECTORIZE_DEBUG_DIR = Path(os.getenv('VECTORIZE_DEBUG_DIR', str(IMAGES_DIR)))
+
+# OCR text layer (Tesseract + pytesseract; local install required for binary)
+_trace_ocr_default = 'false' if IS_SERVERLESS else 'true'
+TRACE_OCR_ENABLED = os.getenv('TRACE_OCR_ENABLED', _trace_ocr_default).lower() in (
+    '1', 'true', 'yes',
+)
+TESSERACT_CMD = os.getenv('TESSERACT_CMD', '').strip()
+TRACE_OCR_MIN_CONFIDENCE = int(os.getenv('TRACE_OCR_MIN_CONFIDENCE', '55'))
+TRACE_OCR_MIN_HEIGHT = int(os.getenv('TRACE_OCR_MIN_HEIGHT', '8'))
+TRACE_OCR_FONT_SCALE = float(os.getenv('TRACE_OCR_FONT_SCALE', '0.95'))
+TRACE_OCR_MASK_DILATE = int(os.getenv('TRACE_OCR_MASK_DILATE', '5'))
+
+# --- Diagram refine via matplotlib codegen (local-only; Edit in Canvas) ---
+DIAGRAM_REFINE_MODEL = os.getenv('DIAGRAM_REFINE_MODEL', 'gpt-5.4')
+DIAGRAM_REFINE_MAX_ITERATIONS = int(os.getenv('DIAGRAM_REFINE_MAX_ITERATIONS', '4'))
+DIAGRAM_REFINE_EXEC_TIMEOUT = int(os.getenv('DIAGRAM_REFINE_EXEC_TIMEOUT', '25'))
