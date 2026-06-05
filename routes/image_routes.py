@@ -222,6 +222,14 @@ def register(app):
         Reconstruct a diagram via LLM-generated matplotlib code with visual feedback.
         Local-only: executes Python in a sandboxed subprocess.
         """
+        if config.IS_SERVERLESS:
+            return jsonify({
+                'error': (
+                    'Diagram code reconstruction is not available on Vercel. '
+                    'Run locally with requirements-local.txt for canvas codegen refine.'
+                ),
+            }), 503
+
         request_start = time.time()
         logger.info("=" * 50)
         logger.info("[/refine-svg-codegen] Request received")
