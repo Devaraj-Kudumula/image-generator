@@ -56,15 +56,23 @@ state.gemini_client = init_gemini()
 logger.info("Initializing Serper (web search)...")
 state.google_serper_wrapper = init_serper()
 
-# Initialize MongoDB, vectorstore, retriever
+# Initialize MongoDB, vectorstore, retriever (non-fatal on serverless cold start)
 logger.info("Initializing MongoDB connection...")
-(
-    state.mongo_client,
-    state.vectorstore,
-    state.retriever,
-    state.known_doc_names,
-    state.embedding_model,
-) = init_mongo()
+try:
+    (
+        state.mongo_client,
+        state.vectorstore,
+        state.retriever,
+        state.known_doc_names,
+        state.embedding_model,
+    ) = init_mongo()
+except Exception as exc:
+    logger.error("MongoDB initialization failed (app will run without RAG): %s", exc)
+    state.mongo_client = None
+    state.vectorstore = None
+    state.retriever = None
+    state.known_doc_names = []
+    state.embedding_model = None
 
 # Register route modules
 main_routes.register(app)

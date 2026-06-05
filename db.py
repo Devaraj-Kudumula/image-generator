@@ -96,12 +96,13 @@ def init_mongo() -> Tuple[
         logger.info("Embedding model initialized")
 
         logger.info("Connecting to MongoDB Atlas...")
+        mongo_timeout_ms = 10000 if config.IS_SERVERLESS else 30000
         try:
             mongo_client = MongoClient(
                 config.MONGODB_URI,
-                serverSelectionTimeoutMS=30000,
-                connectTimeoutMS=30000,
-                socketTimeoutMS=30000,
+                serverSelectionTimeoutMS=mongo_timeout_ms,
+                connectTimeoutMS=mongo_timeout_ms,
+                socketTimeoutMS=mongo_timeout_ms,
                 retryWrites=True,
             )
             mongo_client.admin.command('ping')

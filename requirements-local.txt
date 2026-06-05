@@ -1,0 +1,6 @@
+# Optional local-only dependencies (not installed on Vercel).
+# pip install -r requirements-local.txt
+gunicorn==21.2.0
+opencv-contrib-python==4.10.0.84
+matplotlib>=3.8.0
+cairosvg>=2.7.0
