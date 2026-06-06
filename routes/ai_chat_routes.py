@@ -6,10 +6,11 @@ LLM, hovers on assistant replies, and pushes a chosen reply to the existing
 image generation flow.
 """
 import time
+import json
 import logging
 import traceback
 
-from flask import request, jsonify
+from flask import request, jsonify, Response, stream_with_context
 
 import config
 from app_state import state
@@ -264,3 +265,137 @@ def register(app):
             logger.error("[/ai-chat-message] Error: %s", e)
             logger.error(traceback.format_exc())
             return jsonify({"error": str(e)}), 500
+
+    @app.route("/ai-chat-message/stream", methods=["POST"])
+    def ai_chat_message_stream():
+        """
+        Same as /ai-chat-message, but streams the reply token-by-token as
+        Server-Sent Events so the UI can render text as it arrives.
+
+        Event payloads (one JSON object per `data:` line):
+          {"delta": "<text chunk>"}                  incremental text
+          {"done": true, "metrics": {...}}           final event with metrics
+          {"error": "<message>"}                     error during streaming
+        """
+        request_start = time.time()
+        logger.info("[/ai-chat-message/stream] Request received")
+
+        # --- Validation happens up front so failures return a normal JSON error
+        #     (with the right status) before any streaming begins. ---
+        try:
+            data = request.get_json() or {}
+            user_message = str((data or {}).get("user_message") or "").strip()
+            history = (data or {}).get("history") or []
+            override_raw = (data or {}).get("system_prompt_override")
+            system_text = AI_CHAT_SYSTEM
+            if isinstance(override_raw, str):
+                stripped = override_raw.strip()
+                if stripped:
+                    if len(stripped) > _AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS:
+                        return jsonify({
+                            "error": (
+                                f"system_prompt_override exceeds {_AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS} characters"
+                            ),
+                        }), 400
+                    system_text = stripped
+
+            if not user_message:
+                return jsonify({"error": "user_message is required"}), 400
+            if state.conversation_llm is None:
+                return jsonify({"error": "Conversation LLM is not initialized"}), 503
+
+            history_entries = _normalize_history_entries(history)
+            max_ctx = config.OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS
+            model_name = config.OPENAI_CONVERSATION_MODEL
+
+            messages, est_input_tokens, trimmed_pairs = _build_messages_with_context_cap(
+                system_text,
+                history_entries,
+                user_message,
+                max_ctx,
+                model_name,
+            )
+            if trimmed_pairs:
+                logger.info(
+                    "[/ai-chat-message/stream] Trimmed %d oldest message pair(s) (~%s est. input tokens, cap=%s)",
+                    trimmed_pairs,
+                    est_input_tokens,
+                    max_ctx,
+                )
+        except Exception as e:
+            logger.error("[/ai-chat-message/stream] Setup error: %s", e)
+            logger.error(traceback.format_exc())
+            return jsonify({"error": str(e)}), 500
+
+        def event_stream():
+            def sse(payload):
+                return f"data: {json.dumps(payload)}\n\n"
+
+            api_start = time.time()
+            usage = {}
+            finish_reason = None
+            resolved_model = model_name
+            chars = 0
+            try:
+                for chunk in state.conversation_llm.stream(messages):
+                    # Accumulate best-effort usage / metadata from chunks.
+                    chunk_usage = getattr(chunk, "usage_metadata", None)
+                    if chunk_usage:
+                        usage = chunk_usage
+                    meta = getattr(chunk, "response_metadata", {}) or {}
+                    finish_reason = meta.get("finish_reason") or finish_reason
+                    resolved_model = meta.get("model_name") or resolved_model
+
+                    raw = getattr(chunk, "content", "")
+                    if isinstance(raw, list):
+                        text = ""
+                        for part in raw:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text += part.get("text") or ""
+                            elif isinstance(part, str):
+                                text += part
+                    else:
+                        text = raw if isinstance(raw, str) else str(raw or "")
+
+                    if text:
+                        chars += len(text)
+                        yield sse({"delta": text})
+
+                api_latency_ms = int((time.time() - api_start) * 1000)
+                request_ms = int((time.time() - request_start) * 1000)
+                logger.info(
+                    "[/ai-chat-message/stream] OK in %dms (api %dms, chars=%d, history_turns=%s)",
+                    request_ms,
+                    api_latency_ms,
+                    chars,
+                    len(history_entries),
+                )
+                yield sse({
+                    "done": True,
+                    "metrics": {
+                        "model": resolved_model,
+                        "prompt_tokens": (usage or {}).get("input_tokens") or (usage or {}).get("prompt_tokens"),
+                        "completion_tokens": (usage or {}).get("output_tokens") or (usage or {}).get("completion_tokens"),
+                        "total_tokens": (usage or {}).get("total_tokens"),
+                        "latency_ms": api_latency_ms,
+                        "request_ms": request_ms,
+                        "finish_reason": finish_reason,
+                        "history_turns_sent": len(history_entries),
+                        "history_turns_trimmed_pairs": trimmed_pairs,
+                        "estimated_input_tokens": est_input_tokens,
+                        "context_token_cap": max_ctx,
+                    },
+                })
+            except Exception as e:
+                logger.error("[/ai-chat-message/stream] Stream error: %s", e)
+                logger.error(traceback.format_exc())
+                yield sse({"error": str(e)})
+
+        return Response(
+            stream_with_context(event_stream()),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # disable proxy buffering (e.g. nginx)
+            },
+        )

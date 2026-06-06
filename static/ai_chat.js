@@ -404,29 +404,88 @@
         }
         if (sendBtn) sendBtn.disabled = true;
 
+        // Assistant placeholder we stream tokens into.
+        const assistantMsg = { id: nextMessageId++, role: 'assistant', content: '' };
+        session.messages.push(assistantMsg);
+        renderMessages();
+
+        // Update just this message's content node so we don't re-render every token.
+        const liveContentEl = () => {
+            const container = document.getElementById('aiChatMessages');
+            if (!container) return null;
+            const row = container.querySelector('[data-message-id="' + assistantMsg.id + '"]');
+            return row ? row.querySelector('.ai-chat-content') : null;
+        };
+        const paintDelta = () => {
+            const el = liveContentEl();
+            if (el) {
+                el.textContent = assistantMsg.content;
+                el.parentElement.scrollIntoView({ block: 'end' });
+            }
+        };
+
         try {
-            const response = await fetch('/ai-chat-message', {
+            const response = await fetch('/ai-chat-message/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to get answer');
+
+            if (!response.ok || !response.body) {
+                // Validation errors (400/503) come back as plain JSON.
+                let msg = 'Failed to get answer';
+                try { msg = (await response.json()).error || msg; } catch (e) {}
+                throw new Error(msg);
             }
 
-            session.messages.push({
-                id: nextMessageId++,
-                role: 'assistant',
-                content: String(data.answer || 'No answer generated.'),
-            });
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let streamError = null;
+            let gotAnyText = false;
+
+            // Hide the global spinner once streaming starts; tokens are the indicator.
+            if (loadingEl) loadingEl.classList.add('hidden');
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                // SSE events are separated by a blank line.
+                let sep;
+                while ((sep = buffer.indexOf('\n\n')) !== -1) {
+                    const rawEvent = buffer.slice(0, sep);
+                    buffer = buffer.slice(sep + 2);
+                    const line = rawEvent.split('\n').find((l) => l.startsWith('data:'));
+                    if (!line) continue;
+                    let payload;
+                    try {
+                        payload = JSON.parse(line.slice(5).trim());
+                    } catch (e) {
+                        continue;
+                    }
+                    if (payload.delta) {
+                        assistantMsg.content += payload.delta;
+                        gotAnyText = true;
+                        paintDelta();
+                    } else if (payload.error) {
+                        streamError = payload.error;
+                    }
+                    // payload.done carries metrics; nothing to render for now.
+                }
+            }
+
+            if (streamError) {
+                throw new Error(streamError);
+            }
+            if (!gotAnyText && !assistantMsg.content) {
+                assistantMsg.content = 'No answer generated.';
+            }
+            // Final render so the assistant action buttons attach.
             renderAll();
         } catch (error) {
-            session.messages.push({
-                id: nextMessageId++,
-                role: 'assistant',
-                content: 'Error: ' + (error.message || 'Unknown error'),
-            });
+            assistantMsg.content = 'Error: ' + (error.message || 'Unknown error');
             renderMessages();
             renderHeader();
             renderSidebar();

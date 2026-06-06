@@ -99,4 +99,6 @@ if __name__ == '__main__':
     logger.info("Open your browser and navigate to http://localhost:%s", port)
     logger.info("=" * 60)
 
-    app.run(debug=False, host='0.0.0.0', port=port)
+    # threaded=True so a streaming SSE response (/ai-chat-message/stream) doesn't
+    # block concurrent requests (static assets, other API calls).
+    app.run(debug=False, host='0.0.0.0', port=port, threaded=True)

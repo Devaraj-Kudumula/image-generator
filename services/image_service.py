@@ -114,6 +114,7 @@ def generate_image(
         raise ValueError("Gemini client not initialized")
 
     ratio = normalize_aspect_ratio(aspect_ratio)
+    logger.info("Generating image with Gemini; aspect_ratio=%s", aspect_ratio)
     response = state.gemini_client.models.generate_content(
         model="gemini-3-pro-image-preview",
         contents=prompt,
