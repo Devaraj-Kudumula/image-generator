@@ -1175,6 +1175,7 @@ function openCanvasEditorForEntry(entryIndex) {
     window.openCanvasEditor({
         filename: filename,
         imageDataUrl: imageDataUrl,
+        sourcePrompt: entry.sourcePrompt || '',
         onSave: function (pngDataUrl) {
             saveCanvasEditToHistory(pngDataUrl);
         },

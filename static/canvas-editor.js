@@ -20,6 +20,7 @@
     var isOpen = false;
     var currentSourceFilename = '';
     var currentSourceImageDataUrl = '';
+    var currentSourcePrompt = '';
     var isReconstructing = false;
 
     function getEl(id) {
@@ -429,6 +430,10 @@
         if (filename) {
             payload.filename = filename;
         }
+        // Source prompt helps the server correct OCR label misreads.
+        if (currentSourcePrompt) {
+            payload.prompt = currentSourcePrompt;
+        }
 
         var response = await fetch('/vectorize-image', {
             method: 'POST',
@@ -509,6 +514,7 @@
         saveCallback = null;
         currentSourceFilename = '';
         currentSourceImageDataUrl = '';
+        currentSourcePrompt = '';
         isReconstructing = false;
         setLoading(true, 'Converting image to editable vectors…');
         if (subtitleEl) subtitleEl.textContent = 'Vectorizing image…';
@@ -540,6 +546,7 @@
         var imageDataUrl = options.imageDataUrl || '';
         currentSourceFilename = filename;
         currentSourceImageDataUrl = imageDataUrl;
+        currentSourcePrompt = options.prompt || options.sourcePrompt || '';
 
         if (!filename && !imageDataUrl) {
             showError('No image reference provided.');

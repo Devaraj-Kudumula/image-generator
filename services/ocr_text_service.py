@@ -5,8 +5,10 @@ Uses Tesseract (via pytesseract) when available; all entry points no-op safely
 if the binary or package is missing.
 """
 import logging
+import re
 import xml.etree.ElementTree as ET
-from typing import Any, Dict, List, Optional, Tuple
+from difflib import SequenceMatcher
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
@@ -19,6 +21,45 @@ SVG_NS = "http://www.w3.org/2000/svg"
 
 _pytesseract = None
 _tesseract_configured = False
+
+# Built-in anatomy/medical token vocabulary used to correct OCR misreads
+# (e.g. "interosseı" -> "interossei", "radıus" -> "radius"). Caller-supplied
+# labels / the source prompt are added on top of this at request time.
+ANATOMY_VOCABULARY = frozenset({
+    # bones
+    "phalanx", "phalanges", "distal", "middle", "proximal", "metacarpal",
+    "metacarpals", "carpal", "carpals", "radius", "ulna", "humerus", "scaphoid",
+    "lunate", "triquetrum", "pisiform", "trapezium", "trapezoid", "capitate",
+    "hamate", "sesamoid", "epiphysis", "diaphysis",
+    # joints / connective
+    "joint", "ligament", "ligaments", "collateral", "capsule", "cartilage",
+    "tendon", "tendons", "flexor", "extensor", "retinaculum", "aponeurosis",
+    "sheath", "pulley", "pulleys", "fascia",
+    # muscles
+    "muscle", "muscles", "thenar", "hypothenar", "lumbrical", "lumbricals",
+    "interosseous", "interossei", "adductor", "abductor", "opponens", "flexor",
+    "extensor", "brevis", "longus", "pollicis", "digiti", "minimi",
+    # nerves
+    "nerve", "nerves", "median", "ulnar", "radial", "digital", "palmar",
+    "dorsal", "branch",
+    # vessels
+    "artery", "arteries", "arterial", "vein", "veins", "venous", "network",
+    "arch", "superficial", "deep", "anastomosis", "capillary",
+    # orientation / general
+    "anterior", "posterior", "medial", "lateral", "superior", "inferior",
+    "volar", "ventral", "head", "shaft", "base", "neck", "body", "process",
+    "tubercle", "tuberosity", "fossa", "groove", "notch",
+})
+
+# Common Tesseract character confusions to normalize before matching.
+_OCR_CHAR_FIXES = str.maketrans({
+    "ı": "i",  # dotless i (very common with this font)
+    "İ": "I",
+    "“": '"', "”": '"', "‘": "'", "’": "'",
+    "—": "-", "–": "-",
+})
+
+_WORD_RE = re.compile(r"[A-Za-z]+")
 
 
 def _try_import_pytesseract():
@@ -84,8 +125,11 @@ def extract_words(
     )
 
     rgb = image.convert("RGB")
+    tess_config = (config.TRACE_OCR_TESSERACT_CONFIG or "").strip()
     try:
-        data = pt.image_to_data(rgb, output_type=pt.Output.DICT)
+        data = pt.image_to_data(
+            rgb, output_type=pt.Output.DICT, config=tess_config
+        )
     except Exception as exc:
         logger.warning("Tesseract OCR failed: %s", exc)
         return []
@@ -119,6 +163,94 @@ def extract_words(
         })
 
     logger.info("OCR extracted %d word(s)", len(words))
+    return words
+
+
+def build_vocabulary(extra_terms: Optional[Sequence[str]] = None) -> set:
+    """
+    Build the lowercase token vocabulary for OCR correction: the built-in
+    anatomy terms plus any caller-supplied labels/prompt text (split into words).
+    """
+    vocab = set(ANATOMY_VOCABULARY)
+    for term in (extra_terms or []):
+        if not term:
+            continue
+        for token in _WORD_RE.findall(str(term).lower()):
+            if len(token) >= 3:
+                vocab.add(token)
+    return vocab
+
+
+def _normalize_token(text: str) -> str:
+    return text.translate(_OCR_CHAR_FIXES)
+
+
+def _match_case(original: str, replacement: str) -> str:
+    """Apply the casing pattern of `original` to `replacement`."""
+    if original.isupper():
+        return replacement.upper()
+    if original[:1].isupper():
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
+def _best_vocab_match(token: str, vocabulary: set, min_ratio: float) -> Optional[str]:
+    """Return the closest vocabulary term to `token`, or None if none is close enough."""
+    lower = token.lower()
+    if lower in vocabulary:
+        return lower
+    best = None
+    best_ratio = min_ratio
+    for cand in vocabulary:
+        # Cheap length prefilter before the (costlier) ratio computation.
+        if abs(len(cand) - len(lower)) > 2:
+            continue
+        ratio = SequenceMatcher(None, lower, cand).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best = cand
+    return best
+
+
+def correct_words_to_vocabulary(
+    words: List[Dict[str, Any]],
+    extra_terms: Optional[Sequence[str]] = None,
+    min_ratio: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Snap each OCR word to the nearest known vocabulary term (in place).
+
+    Fixes character-level misreads such as dotless-i ("radıus" -> "radius",
+    "interosseı" -> "interossei") without touching words that have no close
+    match. Returns the same list for convenience.
+    """
+    if not words or not config.TRACE_OCR_VOCAB_CORRECTION:
+        return words
+
+    min_ratio = (
+        min_ratio if min_ratio is not None else config.TRACE_OCR_VOCAB_MIN_RATIO
+    )
+    vocabulary = build_vocabulary(extra_terms)
+    corrected = 0
+
+    for word in words:
+        # Normalize common char confusions (e.g. dotless-ı -> i) FIRST, so the
+        # ASCII word regex below can see whole words, then snap to vocabulary.
+        normalized_text = _normalize_token(word.get("text") or "")
+
+        def _sub(match):
+            nonlocal corrected
+            tok = match.group(0)
+            cand = _best_vocab_match(tok, vocabulary, min_ratio)
+            if cand and cand.lower() != tok.lower():
+                corrected += 1
+                return _match_case(tok, cand)
+            return tok
+
+        word["text"] = _WORD_RE.sub(_sub, normalized_text)
+
+    if corrected:
+        logger.info("OCR vocabulary correction fixed %d token(s)", corrected)
     return words
 
 

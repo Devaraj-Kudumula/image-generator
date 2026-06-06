@@ -181,6 +181,16 @@ TRACE_OCR_MIN_CONFIDENCE = int(os.getenv('TRACE_OCR_MIN_CONFIDENCE', '55'))
 TRACE_OCR_MIN_HEIGHT = int(os.getenv('TRACE_OCR_MIN_HEIGHT', '8'))
 TRACE_OCR_FONT_SCALE = float(os.getenv('TRACE_OCR_FONT_SCALE', '0.95'))
 TRACE_OCR_MASK_DILATE = int(os.getenv('TRACE_OCR_MASK_DILATE', '5'))
+# Tesseract engine flags: --oem 1 = LSTM engine, --psm 11 = sparse text
+# (scattered diagram labels rather than a single text block).
+TRACE_OCR_TESSERACT_CONFIG = os.getenv('TRACE_OCR_TESSERACT_CONFIG', '--oem 1 --psm 11')
+# Known-label correction: snap each OCR word to the nearest term in the known
+# vocabulary (built-in anatomy terms + any caller-supplied labels/prompt) when
+# the similarity ratio is at least this high. Lower = more aggressive correction.
+TRACE_OCR_VOCAB_CORRECTION = os.getenv('TRACE_OCR_VOCAB_CORRECTION', 'true').lower() in (
+    '1', 'true', 'yes',
+)
+TRACE_OCR_VOCAB_MIN_RATIO = float(os.getenv('TRACE_OCR_VOCAB_MIN_RATIO', '0.82'))
 
 # --- Diagram refine via matplotlib codegen (local-only; Edit in Canvas) ---
 DIAGRAM_REFINE_MODEL = os.getenv('DIAGRAM_REFINE_MODEL', 'gpt-5.4')

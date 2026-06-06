@@ -161,14 +161,29 @@ def register(app):
             include_meta = bool(data.get('include_meta'))
             debug_dump = bool(data.get('debug_dump'))
 
+            # Known-label hints for OCR correction: an explicit `labels` list
+            # and/or the source `prompt` the image was generated from.
+            vocab_terms = []
+            labels = data.get('labels')
+            if isinstance(labels, list):
+                vocab_terms.extend(str(x) for x in labels if x)
+            prompt_hint = data.get('prompt')
+            if isinstance(prompt_hint, str) and prompt_hint.strip():
+                vocab_terms.append(prompt_hint)
+            vocab_terms = vocab_terms or None
+
             api_start = time.time()
             try:
                 if include_meta or debug_dump:
                     svg_string, trace_meta = (
-                        vectorize_service.vectorize_png_to_svg_with_meta(image_bytes)
+                        vectorize_service.vectorize_png_to_svg_with_meta(
+                            image_bytes, vocab_terms
+                        )
                     )
                 else:
-                    svg_string = vectorize_service.vectorize_png_to_svg(image_bytes)
+                    svg_string = vectorize_service.vectorize_png_to_svg(
+                        image_bytes, vocab_terms
+                    )
                     trace_meta = None
             except ValueError as e:
                 return jsonify({'error': str(e)}), 500

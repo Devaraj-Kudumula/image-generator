@@ -750,6 +750,7 @@
         window.openCanvasEditor({
             filename: filename,
             imageDataUrl: imageDataUrl,
+            sourcePrompt: latest.prompt || '',
             onSave: function (pngDataUrl) {
                 saveCanvasEditToSession(pngDataUrl);
             },

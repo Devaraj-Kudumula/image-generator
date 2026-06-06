@@ -356,6 +356,7 @@ def _image_to_png_bytes(image: Image.Image) -> bytes:
 
 def _prepare_trace_image(
     image_bytes: bytes,
+    vocab_terms: Optional[List[str]] = None,
 ) -> Tuple[bytes, int, int, List[Dict[str, Any]], Optional[Image.Image]]:
     """
     Load, resize to trace dimensions, OCR + mask text, smooth/quantize, trace.
@@ -382,6 +383,7 @@ def _prepare_trace_image(
     if config.TRACE_OCR_ENABLED and ocr_text_service.is_ocr_available():
         ocr_words = ocr_text_service.extract_words(base_resized)
         if ocr_words:
+            ocr_text_service.correct_words_to_vocabulary(ocr_words, vocab_terms)
             image = ocr_text_service.mask_text_regions(image, ocr_words)
             logger.info("Masked %d OCR word region(s) before tracing", len(ocr_words))
 
@@ -613,7 +615,9 @@ def get_vectorize_settings() -> Dict[str, Any]:
     }
 
 
-def _vectorize_vtracer(image_bytes: bytes) -> Tuple[str, int, int]:
+def _vectorize_vtracer(
+    image_bytes: bytes, vocab_terms: Optional[List[str]] = None
+) -> Tuple[str, int, int]:
     """vtracer pipeline: prepare image, trace, post-process."""
     try:
         import vtracer
@@ -622,7 +626,9 @@ def _vectorize_vtracer(image_bytes: bytes) -> Tuple[str, int, int]:
             "vtracer is not installed. Add vtracer to requirements.txt and reinstall."
         ) from exc
 
-    png_bytes, width, height, ocr_words, base_resized = _prepare_trace_image(image_bytes)
+    png_bytes, width, height, ocr_words, base_resized = _prepare_trace_image(
+        image_bytes, vocab_terms
+    )
 
     try:
         svg = vtracer.convert_raw_image_to_svg(
@@ -648,7 +654,9 @@ def _vectorize_vtracer(image_bytes: bytes) -> Tuple[str, int, int]:
     return svg_str, width, height
 
 
-def _vectorize_core(image_bytes: bytes) -> Tuple[str, int, int]:
+def _vectorize_core(
+    image_bytes: bytes, vocab_terms: Optional[List[str]] = None
+) -> Tuple[str, int, int]:
     """
     Run vectorization via configured backend.
     Returns (svg_str, trace_width, trace_height).
@@ -660,7 +668,9 @@ def _vectorize_core(image_bytes: bytes) -> Tuple[str, int, int]:
 
     if backend in PAID_BACKENDS:
         svg_str, paid_meta = vectorize_via_paid_backend(image_bytes, backend)
-        _png_bytes, width, height, ocr_words, base_resized = _prepare_trace_image(image_bytes)
+        _png_bytes, width, height, ocr_words, base_resized = _prepare_trace_image(
+            image_bytes, vocab_terms
+        )
         svg_str = _postprocess_svg(svg_str, width, height)
         svg_str = _inject_text_layer(svg_str, ocr_words, base_resized)
         logger.info(
@@ -679,7 +689,7 @@ def _vectorize_core(image_bytes: bytes) -> Tuple[str, int, int]:
             f"Use vtracer, {', '.join(sorted(PAID_BACKENDS))}."
         )
 
-    svg_str, width, height = _vectorize_vtracer(image_bytes)
+    svg_str, width, height = _vectorize_vtracer(image_bytes, vocab_terms)
     logger.info(
         "Vectorized image (%dx%d trace) -> SVG length %d paths=%d",
         width,
@@ -690,21 +700,28 @@ def _vectorize_core(image_bytes: bytes) -> Tuple[str, int, int]:
     return svg_str, width, height
 
 
-def vectorize_png_to_svg(image_bytes: bytes) -> str:
+def vectorize_png_to_svg(
+    image_bytes: bytes, vocab_terms: Optional[List[str]] = None
+) -> str:
     """
     Convert PNG bytes to an SVG string.
 
+    `vocab_terms` (optional): known labels / source-prompt text used to correct
+    OCR misreads in the text layer.
+
     Raises ValueError on empty input or tracing failure.
     """
-    svg_str, _, _ = _vectorize_core(image_bytes)
+    svg_str, _, _ = _vectorize_core(image_bytes, vocab_terms)
     return svg_str
 
 
-def vectorize_png_to_svg_with_meta(image_bytes: bytes) -> Tuple[str, Dict[str, Any]]:
+def vectorize_png_to_svg_with_meta(
+    image_bytes: bytes, vocab_terms: Optional[List[str]] = None
+) -> Tuple[str, Dict[str, Any]]:
     """
     Like vectorize_png_to_svg but returns trace dimensions and settings metadata.
     """
-    svg_str, width, height = _vectorize_core(image_bytes)
+    svg_str, width, height = _vectorize_core(image_bytes, vocab_terms)
     meta = {
         "trace_width": width,
         "trace_height": height,
