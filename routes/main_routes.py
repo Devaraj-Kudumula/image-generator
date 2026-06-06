@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 def register(app):
+    @app.route('/static/<path:filename>')
+    def static_assets(filename):
+        """Serve JS/CSS when not already handled by Vercel public/ CDN."""
+        return send_from_directory('static', filename)
+
     @app.route('/')
     def index():
         logger.info("Serving index.html")
