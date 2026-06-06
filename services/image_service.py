@@ -17,6 +17,7 @@ from backend.image_utils import (
     image_bytes_to_data_url,
     decode_image_data_url,
     extract_png_bytes_from_gemini_response,
+    diagnose_missing_image,
 )
 from app_state import state
 import config
@@ -135,7 +136,9 @@ def generate_image(
             f"Error processing Gemini response: {str(part_error)}"
         ) from part_error
     if not image_bytes:
-        raise ValueError("No image generated in response")
+        reason = diagnose_missing_image(response)
+        logger.error("Gemini returned 200 but no image. Reason: %s", reason)
+        raise ValueError(f"No image generated in response ({reason})")
 
     config.IMAGE_STORE[filename] = image_bytes
     image_data_url = image_bytes_to_data_url(image_bytes)
@@ -259,7 +262,9 @@ def edit_image(
             f"Error processing Gemini response: {str(part_error)}"
         ) from part_error
     if not edited_bytes:
-        raise ValueError("No edited image generated in response")
+        reason = diagnose_missing_image(response)
+        logger.error("Gemini returned 200 but no edited image. Reason: %s", reason)
+        raise ValueError(f"No edited image generated in response ({reason})")
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     new_filename = f'edited_{timestamp}.png'
