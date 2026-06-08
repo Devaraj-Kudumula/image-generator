@@ -8,7 +8,11 @@ import logging
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment,misc]
+
 from PIL import Image
 
 import config
@@ -56,8 +60,8 @@ def _try_import_cv2():
 
 
 def is_ocr_available() -> bool:
-    """True if pytesseract and the Tesseract binary are usable."""
-    return _try_import_pytesseract() is not None
+    """True if pytesseract, numpy, and the Tesseract binary are usable."""
+    return np is not None and _try_import_pytesseract() is not None
 
 
 def extract_words(

@@ -1,9 +1,9 @@
 """
-Main routes: index and health check.
+Main routes: pages, health check, and lightweight stubs for disabled RAG endpoints.
 """
 import logging
 
-from flask import send_from_directory, jsonify
+from flask import send_from_directory, jsonify, redirect, request
 
 import config
 from app_state import state
@@ -19,13 +19,8 @@ def register(app):
 
     @app.route('/')
     def index():
-        logger.info("Serving index.html")
-        return send_from_directory('.', 'index.html')
-
-    @app.route('/docs-chat')
-    def docs_chat():
-        logger.info("Serving docs_chat.html")
-        return send_from_directory('.', 'docs_chat.html')
+        logger.info("Redirecting / to /ai-chat")
+        return redirect('/ai-chat', code=302)
 
     @app.route('/upload-edit')
     def upload_edit():
@@ -40,25 +35,48 @@ def register(app):
     @app.route('/health', methods=['GET'])
     def health():
         """Health check endpoint for monitoring"""
-        doc_count = 0
-        if state.mongo_client:
-            try:
-                collection = state.mongo_client[config.DB_NAME][config.COLLECTION_NAME]
-                doc_count = collection.count_documents({})
-            except Exception:
-                doc_count = -1
-
         status = {
             'status': 'healthy',
             'openai_configured': config.OPENAI_API_KEY is not None,
             'google_configured': config.GOOGLE_API_KEY is not None,
-            'mongodb_connected': state.mongo_client is not None,
-            'vectorstore_loaded': state.vectorstore is not None,
-            'retriever_ready': state.retriever is not None,
-            'doc_name_catalog_ready': len(state.known_doc_names) > 0,
-            'vectorstore_doc_count': doc_count,
+            'conversation_llm_ready': state.conversation_llm is not None,
             'gemini_client_ready': state.gemini_client is not None,
-            'rag_available': state.retriever is not None and doc_count > 0,
+            'rag_available': False,
+            'is_serverless': config.IS_SERVERLESS,
         }
         logger.info("Health check: %s", status)
         return jsonify(status), 200
+
+    @app.route('/doc-names', methods=['GET'])
+    def get_doc_names_stub():
+        """Stub: RAG doc catalog disabled on Vercel slim deploy."""
+        session_id = (request.args.get('session_id') or '').strip()
+        return jsonify({
+            'doc_names': [],
+            'base_doc_names': [],
+            'session_doc_names': [],
+            'count': 0,
+            'session_id': session_id,
+            'disabled': True,
+        }), 200
+
+    @app.route('/session/reset', methods=['POST'])
+    def reset_session_stub():
+        """Stub: session doc reset is a no-op when RAG is disabled."""
+        return jsonify({'success': True, 'cleared': False, 'disabled': True}), 200
+
+    @app.route('/chat-with-docs', methods=['POST'])
+    def chat_with_docs_stub():
+        """Stub: document Q&A is disabled on Vercel slim deploy."""
+        return jsonify({
+            'error': 'Document chat is not available on this deployment.',
+            'disabled': True,
+        }), 503
+
+    @app.route('/upload-doc', methods=['POST'])
+    def upload_doc_stub():
+        """Stub: PDF upload for RAG is disabled on Vercel slim deploy."""
+        return jsonify({
+            'error': 'Document upload is not available on this deployment.',
+            'disabled': True,
+        }), 503
