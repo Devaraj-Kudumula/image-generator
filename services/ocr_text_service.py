@@ -60,6 +60,28 @@ _OCR_CHAR_FIXES = str.maketrans({
 })
 
 _WORD_RE = re.compile(r"[A-Za-z]+")
+_VOWEL_RE = re.compile(r"[aeiouAEIOU]")
+
+
+def _is_noise_token(text: str) -> bool:
+    """
+    Heuristic: True if `text` looks like an OCR misread of organ texture rather
+    than a real label. Real diagram labels are wordish (>=2 letters, mostly
+    alphabetic, and contain a vowel once short). Tokens like "BL", "sh", "38",
+    "«" fail one of these and have no nearby vocabulary match to rescue them.
+    """
+    alpha = re.sub(r"[^A-Za-z]", "", text)
+    # Mostly non-letters ("38", "«", "\\", "ss." -> after strip, few letters).
+    if len(alpha) < max(1, len(text)) * 0.6:
+        return True
+    # Too short to be a label word.
+    if len(alpha) < config.TRACE_OCR_MIN_WORD_LEN:
+        return True
+    # Short all-consonant clusters ("BL", "sh", "wv", "PN") are almost always
+    # misreads; real short words carry a vowel.
+    if len(alpha) <= 3 and not _VOWEL_RE.search(alpha):
+        return True
+    return False
 
 
 def _try_import_pytesseract():
@@ -139,6 +161,9 @@ def extract_words(
     for i in range(n):
         text = (data["text"][i] or "").strip()
         if not text:
+            continue
+        if config.TRACE_OCR_DROP_NOISE and _is_noise_token(text):
+            logger.debug("OCR dropped noise token: %r", text)
             continue
         try:
             conf = float(data["conf"][i])
@@ -388,7 +413,10 @@ def build_text_svg_elements(
         elem.set("font-family", "Arial, Helvetica, sans-serif")
         elem.set("fill", fill)
         elem.set("textLength", str(width))
-        elem.set("lengthAdjust", "spacingAndGlyphs")
+        # "spacing" stretches only inter-character gaps to fit the box width;
+        # "spacingAndGlyphs" also distorts the letterforms themselves, which made
+        # labels look heavy/bold and unlike the source text.
+        elem.set("lengthAdjust", "spacing")
         elem.text = text
         elements.append(elem)
 

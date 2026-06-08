@@ -43,13 +43,37 @@ function withActiveChatId(payload) {
 }
 
 const DEFAULT_ASPECT_RATIO = '16:9';
-const ALLOWED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'];
+const ALLOWED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9', '4:5', '5:4'];
 
 function getSelectedAspectRatio() {
     const el = document.getElementById('aspectRatio');
     const v = el && el.value ? String(el.value).trim() : '';
     return ALLOWED_ASPECT_RATIOS.includes(v) ? v : DEFAULT_ASPECT_RATIO;
 }
+
+// Wire the aspect-ratio tile picker: clicking a tile selects it and stores the
+// value in the hidden #aspectRatio input that getSelectedAspectRatio() reads.
+function initAspectPicker() {
+    const picker = document.getElementById('aspectPicker');
+    const hidden = document.getElementById('aspectRatio');
+    if (!picker || !hidden) return;
+    const tiles = picker.querySelectorAll('.aspect-tile');
+    function select(ratio) {
+        if (!ALLOWED_ASPECT_RATIOS.includes(ratio)) ratio = DEFAULT_ASPECT_RATIO;
+        hidden.value = ratio;
+        tiles.forEach((t) => {
+            const on = t.getAttribute('data-ratio') === ratio;
+            t.classList.toggle('selected', on);
+            t.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+    tiles.forEach((t) => {
+        t.addEventListener('click', () => select(t.getAttribute('data-ratio')));
+    });
+    select(hidden.value || DEFAULT_ASPECT_RATIO);
+}
+
+document.addEventListener('DOMContentLoaded', initAspectPicker);
 
 async function resetServerSession(sessionId) {
     if (!sessionId) return;

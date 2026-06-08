@@ -1174,3 +1174,135 @@ DIAGRAM_REFINE_EXEC_ERROR_USER = (
 DIAGRAM_REFINE_INSTRUCTIONS_SUFFIX = (
     "\n\nAdditional user instructions:\n{instructions}"
 )
+
+
+# ---------------------------------------------------------------------------
+# Style + color palette directives.
+#
+# These are woven into the active theme/system prompt (see
+# compose_style_palette_directive) so the LLM writes image-generation prompts
+# that bake in a rendering style (#14) and color palette (#13). Each style/
+# palette is exposed to the frontend by id; the LLM never sees the id, only the
+# directive text.
+# ---------------------------------------------------------------------------
+
+# Rendering styles (Flat / 2.5D / 3D / Sketch).
+STYLE_DIRECTIVES = {
+    "flat": {
+        "label": "Flat",
+        "directive": (
+            "RENDERING STYLE — FLAT 2D VECTOR: Render as a clean flat 2D vector "
+            "illustration. Use solid color fills, crisp uniform outlines, and even, "
+            "shadowless lighting. Avoid gradients, drop shadows, perspective and "
+            "photoreal texture. Infographic / textbook-diagram grade."
+        ),
+    },
+    "2.5d": {
+        "label": "2.5D",
+        "directive": (
+            "RENDERING STYLE — 2.5D SEMI-DIMENSIONAL: Render flat shapes given gentle "
+            "volume through soft directional gradients and subtle, low-opacity drop "
+            "shadows. Layered, slightly raised look with light depth cues, but keep a "
+            "mostly frontal orthographic view — no full 3D perspective or photoreal "
+            "materials."
+        ),
+    },
+    "3d": {
+        "label": "3D",
+        "directive": (
+            "RENDERING STYLE — 3D RENDER: Render with realistic volumetric forms, true "
+            "depth and perspective, soft global illumination, contact shadows and "
+            "physically plausible materials. Studio-lit medical 3D render quality."
+        ),
+    },
+    "sketch": {
+        "label": "Sketch",
+        "directive": (
+            "RENDERING STYLE — HAND-DRAWN SKETCH: Render as a hand-drawn pencil/ink "
+            "sketch. Use sketchy linework, cross-hatching for shading, slightly uneven "
+            "outlines and a muted or monochrome palette. Anatomical-sketchbook / "
+            "textbook-pen-study feel."
+        ),
+    },
+}
+DEFAULT_STYLE = "flat"
+
+# Built-in color palettes (#13). Hex lists are approximate; the directive tells
+# the model to use them as the dominant/accent tones while keeping natural
+# tissue shading. `custom` is filled at request time from an extracted palette.
+PALETTE_DIRECTIVES = {
+    "scientific_color": {
+        "label": "Scientific Color",
+        "hexes": ["#4A90D9", "#E15B64", "#5BB85B", "#E6B84F"],
+    },
+    "h_and_e": {
+        "label": "H&E Inspired",
+        "hexes": ["#D98AB0", "#E8B7CE", "#5B6FA8", "#AFC8E8"],
+    },
+    "warm_biotech": {
+        "label": "Warm Biotech",
+        "hexes": ["#3B82C4", "#E6C84F", "#C77B3B", "#D7DBE0"],
+    },
+    "in_vitro_violet": {
+        "label": "In Vitro Violet",
+        "hexes": ["#E9C9DD", "#E4DAF0", "#C4CCE9", "#EAEFF7"],
+    },
+    "violet_scale": {
+        "label": "Violet Scale",
+        "hexes": ["#7C5CBF", "#B79BE0", "#EBD0E2", "#D6E0F0"],
+    },
+    "cell_harmony": {
+        "label": "Cell Harmony",
+        "hexes": ["#57A86A", "#AEDDB6", "#EFC2CE", "#BDC4CB"],
+    },
+}
+
+
+def _palette_directive_text(label, hexes):
+    """Build the palette instruction block from a label + list of hex colors."""
+    swatches = ", ".join(h for h in hexes if h)
+    if not swatches:
+        return ""
+    return (
+        f"COLOR PALETTE — {label}: Constrain the illustration's color scheme to this "
+        f"palette: {swatches}. Use these as the dominant and accent colors, blending "
+        "and shading naturally within them for realistic tissue depth. Do not "
+        "introduce unrelated hues; keep backgrounds and labels neutral."
+    )
+
+
+def compose_style_palette_directive(
+    style=None,
+    palette=None,
+    custom_hexes=None,
+):
+    """
+    Return a directive block (or "") to append to the active system prompt,
+    weaving in the selected rendering style (#14) and color palette (#13).
+
+    `palette` may be a built-in id, "custom" (use `custom_hexes`), or falsy.
+    `custom_hexes` is a list of hex strings from an extracted/uploaded palette.
+    """
+    blocks = []
+
+    style_key = (style or "").strip().lower()
+    if style_key in STYLE_DIRECTIVES:
+        blocks.append(STYLE_DIRECTIVES[style_key]["directive"])
+
+    palette_key = (palette or "").strip().lower()
+    if palette_key == "custom" and custom_hexes:
+        text = _palette_directive_text("Custom (from image)", list(custom_hexes))
+        if text:
+            blocks.append(text)
+    elif palette_key in PALETTE_DIRECTIVES:
+        meta = PALETTE_DIRECTIVES[palette_key]
+        text = _palette_directive_text(meta["label"], meta["hexes"])
+        if text:
+            blocks.append(text)
+
+    if not blocks:
+        return ""
+    return (
+        "\n\n--- OUTPUT STYLE & PALETTE (apply to every image prompt you write) ---\n"
+        + "\n\n".join(blocks)
+    )

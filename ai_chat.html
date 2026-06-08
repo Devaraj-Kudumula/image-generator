@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Chat — AI Medical Image Generator</title>
-    <link rel="stylesheet" href="/static/styles.css?v=2">
+    <link rel="stylesheet" href="/static/styles.css?v=3">
     <script>
         (function() {
             var saved = localStorage.getItem('theme');
@@ -92,18 +92,44 @@
                     <div class="rag-retrieval-error hidden" id="aiChatError"></div>
 
                     <div class="aspect-ratio-row">
-                        <label for="aspectRatio" class="aspect-ratio-label">Aspect ratio</label>
-                        <select id="aspectRatio" class="aspect-ratio-select">
-                            <option value="16:9" selected>16:9 — Widescreen</option>
-                            <option value="9:16">9:16 — Portrait</option>
-                            <option value="1:1">1:1 — Square</option>
-                            <option value="4:3">4:3 — Standard</option>
-                            <option value="3:4">3:4 — Tall</option>
-                            <option value="3:2">3:2 — Photo</option>
-                            <option value="2:3">2:3 — Photo tall</option>
-                            <option value="21:9">21:9 — Ultrawide</option>
-                        </select>
+                        <span class="aspect-ratio-label">Aspect ratio</span>
+                        <input type="hidden" id="aspectRatio" value="16:9">
+                        <div id="aspectPicker" class="aspect-picker" role="group" aria-label="Aspect ratio">
+                            <button type="button" class="aspect-tile" data-ratio="16:9" title="16:9 — Widescreen"><span class="aspect-shape" style="width:30px;height:17px"></span><span class="aspect-name">16:9</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="1:1" title="1:1 — Square"><span class="aspect-shape" style="width:24px;height:24px"></span><span class="aspect-name">1:1</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="2:3" title="2:3 — Portrait"><span class="aspect-shape" style="width:20px;height:30px"></span><span class="aspect-name">2:3</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="3:2" title="3:2 — Landscape"><span class="aspect-shape" style="width:30px;height:20px"></span><span class="aspect-name">3:2</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="3:4" title="3:4 — Tall"><span class="aspect-shape" style="width:22px;height:30px"></span><span class="aspect-name">3:4</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="4:3" title="4:3 — Standard"><span class="aspect-shape" style="width:30px;height:22px"></span><span class="aspect-name">4:3</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="4:5" title="4:5 — Portrait"><span class="aspect-shape" style="width:24px;height:30px"></span><span class="aspect-name">4:5</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="5:4" title="5:4 — Landscape"><span class="aspect-shape" style="width:30px;height:24px"></span><span class="aspect-name">5:4</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="9:16" title="9:16 — Portrait"><span class="aspect-shape" style="width:17px;height:30px"></span><span class="aspect-name">9:16</span></button>
+                            <button type="button" class="aspect-tile" data-ratio="21:9" title="21:9 — Ultrawide"><span class="aspect-shape" style="width:30px;height:13px"></span><span class="aspect-name">21:9</span></button>
+                        </div>
                         <span class="aspect-ratio-hint">Used for generation, edits, accurate &amp; refined-prompt passes.</span>
+                    </div>
+
+                    <div class="gen-style-row">
+                        <input type="hidden" id="genStyle" value="flat">
+                        <input type="hidden" id="genPalette" value="">
+                        <input type="hidden" id="genPaletteHexes" value="">
+                        <input type="file" id="paletteImageInput" accept="image/*" class="hidden">
+                        <div class="gen-style-group">
+                            <span class="aspect-ratio-label">Style</span>
+                            <div id="stylePicker" class="style-picker" role="group" aria-label="Rendering style"></div>
+                        </div>
+                        <div class="gen-style-group">
+                            <span class="aspect-ratio-label">Palette</span>
+                            <div class="palette-wrap">
+                                <button type="button" id="paletteBtn" class="palette-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="paletteMenu">
+                                    <span class="palette-swatches" id="paletteBtnSwatches"></span>
+                                    <span id="paletteBtnLabel">None</span>
+                                    <span class="ai-chat-theme-chevron" aria-hidden="true"></span>
+                                </button>
+                                <div id="paletteMenu" class="palette-menu hidden" role="menu" aria-hidden="true"></div>
+                            </div>
+                        </div>
+                        <span class="aspect-ratio-hint">Style &amp; palette are woven into the prompt the model writes.</span>
                     </div>
 
                     <div class="ai-chat-input-row">
@@ -226,7 +252,7 @@
 
         <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
         <script src="/static/canvas-editor.js?v=4"></script>
-        <script src="/static/ai_chat.js?v=4"></script>
+        <script src="/static/ai_chat.js?v=5"></script>
     </div>
 </body>
 </html>

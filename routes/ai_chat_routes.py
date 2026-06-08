@@ -8,13 +8,21 @@ image generation flow.
 import time
 import json
 import logging
+import re
 import traceback
 
 from flask import request, jsonify, Response, stream_with_context
 
 import config
 from app_state import state
-from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS
+from prompts import (
+    AI_CHAT_SYSTEM,
+    AI_CHAT_THEME_PROMPTS,
+    STYLE_DIRECTIVES,
+    PALETTE_DIRECTIVES,
+    DEFAULT_STYLE,
+    compose_style_palette_directive,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +163,33 @@ def _build_messages_with_context_cap(
     return messages, total_est, trimmed_pairs
 
 
+def _sanitize_hexes(value, limit=8):
+    """Coerce a client-supplied palette into a list of valid #rrggbb strings."""
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        h = str(item or "").strip()
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", h):
+            out.append(h.lower())
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _apply_style_palette(system_text, data):
+    """Append the selected style (#14) + palette (#13) directive to system_text."""
+    style = (data or {}).get("style")
+    palette = (data or {}).get("palette")
+    custom_hexes = _sanitize_hexes((data or {}).get("palette_hexes"))
+    directive = compose_style_palette_directive(
+        style=style, palette=palette, custom_hexes=custom_hexes
+    )
+    if directive:
+        return (system_text or "") + directive
+    return system_text
+
+
 def register(app):
     @app.route("/ai-chat-themes", methods=["GET"])
     def ai_chat_themes():
@@ -167,6 +202,51 @@ def register(app):
             prompt = str(meta.get("prompt") or "").strip()
             themes[theme_id] = {"label": label, "prompt": prompt}
         return jsonify({"themes": themes}), 200
+
+    @app.route("/style-palette-options", methods=["GET"])
+    def style_palette_options():
+        """Rendering styles (#14) and color palettes (#13) for the AI Chat UI."""
+        styles = [
+            {"id": sid, "label": meta["label"]}
+            for sid, meta in STYLE_DIRECTIVES.items()
+        ]
+        palettes = [
+            {"id": pid, "label": meta["label"], "hexes": list(meta["hexes"])}
+            for pid, meta in PALETTE_DIRECTIVES.items()
+        ]
+        return jsonify({
+            "styles": styles,
+            "default_style": DEFAULT_STYLE,
+            "palettes": palettes,
+        }), 200
+
+    @app.route("/extract-palette", methods=["POST"])
+    def extract_palette():
+        """
+        Extract a color palette from an uploaded reference image (#13 'Create a
+        custom scientific color scheme from an image'). Accepts a base64 data URL
+        or raw bytes; returns up to `count` dominant hex colors via k-means.
+        """
+        try:
+            data = request.get_json(silent=True) or {}
+            image_data_url = data.get("image_data_url") or data.get("image")
+            try:
+                count = int(data.get("count") or 5)
+            except (TypeError, ValueError):
+                count = 5
+            count = max(2, min(8, count))
+            if not isinstance(image_data_url, str) or not image_data_url.strip():
+                return jsonify({"error": "image_data_url is required"}), 400
+
+            from services import image_service
+            hexes = image_service.extract_palette_from_data_url(image_data_url, count)
+            if not hexes:
+                return jsonify({"error": "Could not extract a palette from the image"}), 422
+            return jsonify({"hexes": hexes}), 200
+        except Exception as e:
+            logger.error("[/extract-palette] Error: %s", e)
+            logger.error(traceback.format_exc())
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/ai-chat-message", methods=["POST"])
     def ai_chat_message():
@@ -200,6 +280,7 @@ def register(app):
             max_ctx = config.OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS
             model_name = config.OPENAI_CONVERSATION_MODEL
 
+            system_text = _apply_style_palette(system_text, data)
             messages, est_input_tokens, trimmed_pairs = _build_messages_with_context_cap(
                 system_text,
                 history_entries,
@@ -308,6 +389,7 @@ def register(app):
             max_ctx = config.OPENAI_CONVERSATION_MAX_CONTEXT_TOKENS
             model_name = config.OPENAI_CONVERSATION_MODEL
 
+            system_text = _apply_style_palette(system_text, data)
             messages, est_input_tokens, trimmed_pairs = _build_messages_with_context_cap(
                 system_text,
                 history_entries,
