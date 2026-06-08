@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment,misc]
+
 from PIL import Image, ImageFilter
 
 import config
@@ -51,12 +55,14 @@ _SUPERRES_DOWNLOAD_URLS = {
 }
 
 
-def _pil_to_bgr_array(image: Image.Image) -> np.ndarray:
+def _pil_to_bgr_array(image: Image.Image):
+    if np is None:
+        raise RuntimeError("numpy is required for OpenCV preprocessing")
     rgb = np.array(image.convert('RGB'))
     return rgb[:, :, ::-1].copy()
 
 
-def _bgr_array_to_pil(bgr: np.ndarray) -> Image.Image:
+def _bgr_array_to_pil(bgr) -> Image.Image:
     rgb = bgr[:, :, ::-1]
     return Image.fromarray(rgb.astype(np.uint8), mode='RGB')
 
@@ -261,7 +267,7 @@ def _quantize_colors(image: Image.Image, n_colors: int) -> Image.Image:
         return image
 
     cv2 = _try_import_cv2()
-    if cv2 is None:
+    if cv2 is None or np is None:
         return image
 
     rgb = np.array(image.convert('RGB'))
