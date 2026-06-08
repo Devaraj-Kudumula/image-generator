@@ -139,7 +139,12 @@ TRACE_SHARPEN_THRESHOLD = int(os.getenv('TRACE_SHARPEN_THRESHOLD', '2'))
 TRACE_QUANTIZE_ENABLED = os.getenv('TRACE_QUANTIZE_ENABLED', 'true').lower() in (
     '1', 'true', 'yes',
 )
-TRACE_QUANTIZE_COLORS = int(os.getenv('TRACE_QUANTIZE_COLORS', '14'))
+# Number of k-means colors the trace image is reduced to before vtracer. 14 was
+# far too low for richly-shaded illustrations (medical/anatomy art): it collapsed
+# ~70k source colors to 14 flat tones, erasing organ shading and tints (mesentery
+# yellow, spleen purple, gallbladder green). 64 keeps the palette faithful while
+# still flattening gradient noise enough for clean tracing.
+TRACE_QUANTIZE_COLORS = int(os.getenv('TRACE_QUANTIZE_COLORS', '64'))
 TRACE_QUANTIZE_SAMPLE_MAX = int(os.getenv('TRACE_QUANTIZE_SAMPLE_MAX', '12000'))
 
 TRACE_SVG_SCOUR = os.getenv('TRACE_SVG_SCOUR', 'true').lower() in ('1', 'true', 'yes')
@@ -179,11 +184,17 @@ TRACE_OCR_ENABLED = os.getenv('TRACE_OCR_ENABLED', _trace_ocr_default).lower() i
 TESSERACT_CMD = os.getenv('TESSERACT_CMD', '').strip()
 TRACE_OCR_MIN_CONFIDENCE = int(os.getenv('TRACE_OCR_MIN_CONFIDENCE', '55'))
 TRACE_OCR_MIN_HEIGHT = int(os.getenv('TRACE_OCR_MIN_HEIGHT', '8'))
-TRACE_OCR_FONT_SCALE = float(os.getenv('TRACE_OCR_FONT_SCALE', '0.95'))
+# Injected label font size as a fraction of the OCR box height. 0.95 rendered
+# labels noticeably larger/heavier than the source text (OCR boxes include
+# ascender/descender padding); 0.80 tracks the real glyph height more closely.
+TRACE_OCR_FONT_SCALE = float(os.getenv('TRACE_OCR_FONT_SCALE', '0.80'))
 TRACE_OCR_MASK_DILATE = int(os.getenv('TRACE_OCR_MASK_DILATE', '5'))
-# Tesseract engine flags: --oem 1 = LSTM engine, --psm 11 = sparse text
-# (scattered diagram labels rather than a single text block).
-TRACE_OCR_TESSERACT_CONFIG = os.getenv('TRACE_OCR_TESSERACT_CONFIG', '--oem 1 --psm 11')
+# Tesseract engine flags: --oem 1 = LSTM engine, --psm 3 = fully automatic page
+# segmentation (the Tesseract default). PSM 11 ("sparse text") was tried to catch
+# scattered diagram labels, but it hallucinates text from organ shading/hatching,
+# producing garbage tokens that then get masked + re-injected into the SVG. PSM 3
+# is conservative and only picks up the real, laid-out labels.
+TRACE_OCR_TESSERACT_CONFIG = os.getenv('TRACE_OCR_TESSERACT_CONFIG', '--oem 1 --psm 3')
 # Known-label correction: snap each OCR word to the nearest term in the known
 # vocabulary (built-in anatomy terms + any caller-supplied labels/prompt) when
 # the similarity ratio is at least this high. Lower = more aggressive correction.
@@ -191,6 +202,14 @@ TRACE_OCR_VOCAB_CORRECTION = os.getenv('TRACE_OCR_VOCAB_CORRECTION', 'true').low
     '1', 'true', 'yes',
 )
 TRACE_OCR_VOCAB_MIN_RATIO = float(os.getenv('TRACE_OCR_VOCAB_MIN_RATIO', '0.82'))
+# Drop short consonant-only / mostly-symbol tokens that Tesseract occasionally
+# reads out of organ shading (e.g. "BL", "sh", "38", "«"). These have no nearby
+# vocabulary match, so without this guard they get masked + re-injected as junk.
+TRACE_OCR_DROP_NOISE = os.getenv('TRACE_OCR_DROP_NOISE', 'true').lower() in (
+    '1', 'true', 'yes',
+)
+# Minimum number of alphabetic characters a token must have to be kept.
+TRACE_OCR_MIN_WORD_LEN = int(os.getenv('TRACE_OCR_MIN_WORD_LEN', '2'))
 
 # --- Diagram refine via matplotlib codegen (local-only; Edit in Canvas) ---
 DIAGRAM_REFINE_MODEL = os.getenv('DIAGRAM_REFINE_MODEL', 'gpt-5.4')

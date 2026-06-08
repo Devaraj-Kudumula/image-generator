@@ -38,13 +38,240 @@
     let nextMessageId = 1;
     let nextImageId = 1;
 
-    const AI_ALLOWED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9'];
+    const AI_ALLOWED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '21:9', '4:5', '5:4'];
     const AI_DEFAULT_ASPECT_RATIO = '16:9';
     function getSelectedAspectRatio() {
         const el = document.getElementById('aspectRatio');
         const v = el && el.value ? String(el.value).trim() : '';
         return AI_ALLOWED_ASPECT_RATIOS.indexOf(v) >= 0 ? v : AI_DEFAULT_ASPECT_RATIO;
     }
+
+    // Wire the aspect-ratio tile picker -> hidden #aspectRatio input.
+    function initAspectPicker() {
+        const picker = document.getElementById('aspectPicker');
+        const hidden = document.getElementById('aspectRatio');
+        if (!picker || !hidden) return;
+        const tiles = picker.querySelectorAll('.aspect-tile');
+        function select(ratio) {
+            if (AI_ALLOWED_ASPECT_RATIOS.indexOf(ratio) < 0) ratio = AI_DEFAULT_ASPECT_RATIO;
+            hidden.value = ratio;
+            tiles.forEach(function (t) {
+                const on = t.getAttribute('data-ratio') === ratio;
+                t.classList.toggle('selected', on);
+                t.setAttribute('aria-pressed', on ? 'true' : 'false');
+            });
+        }
+        tiles.forEach(function (t) {
+            t.addEventListener('click', function () { select(t.getAttribute('data-ratio')); });
+        });
+        select(hidden.value || AI_DEFAULT_ASPECT_RATIO);
+    }
+    document.addEventListener('DOMContentLoaded', initAspectPicker);
+
+    // ---------------- Style (#14) + color palette (#13) ----------------
+    let styleOptions = [];    // [{id, label}]
+    let paletteOptions = [];  // [{id, label, hexes}]
+
+    function getGenStyle() {
+        const el = document.getElementById('genStyle');
+        return el ? (el.value || '') : '';
+    }
+    function getGenPalette() {
+        const el = document.getElementById('genPalette');
+        return el ? (el.value || '') : '';
+    }
+    function getGenPaletteHexes() {
+        const el = document.getElementById('genPaletteHexes');
+        if (!el || !el.value) return [];
+        try { return JSON.parse(el.value) || []; } catch (e) { return []; }
+    }
+    // Attach the selected style/palette to a chat request body so the server
+    // weaves them into the system prompt the model writes against.
+    function applyStylePaletteToBody(body) {
+        const style = getGenStyle();
+        const palette = getGenPalette();
+        if (style) body.style = style;
+        if (palette) {
+            body.palette = palette;
+            if (palette === 'custom') body.palette_hexes = getGenPaletteHexes();
+        }
+    }
+
+    function swatchRow(hexes, cls) {
+        const row = document.createElement('span');
+        row.className = cls || 'palette-swatches';
+        (hexes || []).slice(0, 5).forEach(function (h) {
+            const dot = document.createElement('span');
+            dot.className = 'palette-dot';
+            dot.style.background = h;
+            row.appendChild(dot);
+        });
+        return row;
+    }
+
+    function renderStyleButtons() {
+        const wrap = document.getElementById('stylePicker');
+        if (!wrap) return;
+        const current = getGenStyle();
+        wrap.innerHTML = '';
+        styleOptions.forEach(function (s) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'style-chip' + (s.id === current ? ' selected' : '');
+            btn.textContent = s.label;
+            btn.setAttribute('data-style', s.id);
+            btn.addEventListener('click', function () {
+                const hidden = document.getElementById('genStyle');
+                if (hidden) hidden.value = s.id;
+                renderStyleButtons();
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    function updatePaletteButton() {
+        const label = document.getElementById('paletteBtnLabel');
+        const sw = document.getElementById('paletteBtnSwatches');
+        const pid = getGenPalette();
+        let hexes = [];
+        let text = 'None';
+        if (pid === 'custom') {
+            hexes = getGenPaletteHexes();
+            text = 'Custom';
+        } else if (pid) {
+            const found = paletteOptions.find(function (p) { return p.id === pid; });
+            if (found) { hexes = found.hexes; text = found.label; }
+        }
+        if (label) label.textContent = text;
+        if (sw) {
+            sw.innerHTML = '';
+            swatchRow(hexes).childNodes.forEach(function (n) { sw.appendChild(n); });
+        }
+    }
+
+    function setPalette(id, hexes) {
+        const hp = document.getElementById('genPalette');
+        const hh = document.getElementById('genPaletteHexes');
+        if (hp) hp.value = id || '';
+        if (hh) hh.value = (id === 'custom') ? JSON.stringify(hexes || []) : '';
+        updatePaletteButton();
+        buildPaletteMenu();
+        closePaletteMenu();
+    }
+
+    function buildPaletteMenu() {
+        const menu = document.getElementById('paletteMenu');
+        if (!menu) return;
+        menu.innerHTML = '';
+        const current = getGenPalette();
+
+        function addCard(opts) {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'palette-card' + (opts.selected ? ' selected' : '');
+            card.setAttribute('role', 'menuitem');
+            if (opts.swatches) card.appendChild(swatchRow(opts.swatches, 'palette-card-swatches'));
+            const name = document.createElement('span');
+            name.className = 'palette-card-name';
+            name.textContent = opts.label;
+            card.appendChild(name);
+            card.addEventListener('click', opts.onClick);
+            menu.appendChild(card);
+        }
+
+        addCard({ label: '+ Create from image', onClick: function () {
+            const input = document.getElementById('paletteImageInput');
+            if (input) input.click();
+            closePaletteMenu();
+        } });
+        addCard({ label: 'None', selected: !current, onClick: function () { setPalette('', []); } });
+        paletteOptions.forEach(function (p) {
+            addCard({ label: p.label, swatches: p.hexes, selected: current === p.id,
+                onClick: function () { setPalette(p.id); } });
+        });
+        if (current === 'custom') {
+            addCard({ label: 'Custom (from image)', swatches: getGenPaletteHexes(), selected: true,
+                onClick: function () { closePaletteMenu(); } });
+        }
+    }
+
+    function openPaletteMenu() {
+        const m = document.getElementById('paletteMenu');
+        const b = document.getElementById('paletteBtn');
+        if (!m) return;
+        buildPaletteMenu();
+        m.classList.remove('hidden');
+        m.setAttribute('aria-hidden', 'false');
+        if (b) b.setAttribute('aria-expanded', 'true');
+    }
+    function closePaletteMenu() {
+        const m = document.getElementById('paletteMenu');
+        const b = document.getElementById('paletteBtn');
+        if (!m) return;
+        m.classList.add('hidden');
+        m.setAttribute('aria-hidden', 'true');
+        if (b) b.setAttribute('aria-expanded', 'false');
+    }
+    function togglePaletteMenu() {
+        const m = document.getElementById('paletteMenu');
+        if (!m) return;
+        if (m.classList.contains('hidden')) openPaletteMenu(); else closePaletteMenu();
+    }
+
+    function handlePaletteImage(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function () {
+            fetch('/extract-palette', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_data_url: reader.result, count: 5 }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (d && d.hexes && d.hexes.length) {
+                        setPalette('custom', d.hexes);
+                    } else {
+                        const e = document.getElementById('aiChatError');
+                        if (e) { e.textContent = (d && d.error) || 'Could not extract palette'; e.classList.remove('hidden'); }
+                    }
+                })
+                .catch(function () {
+                    const e = document.getElementById('aiChatError');
+                    if (e) { e.textContent = 'Palette extraction failed'; e.classList.remove('hidden'); }
+                });
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function initStylePalette() {
+        const styleHidden = document.getElementById('genStyle');
+        fetch('/style-palette-options')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                styleOptions = (d && d.styles) || [];
+                paletteOptions = (d && d.palettes) || [];
+                if (styleHidden && !styleHidden.value && d && d.default_style) {
+                    styleHidden.value = d.default_style;
+                }
+                renderStyleButtons();
+                buildPaletteMenu();
+                updatePaletteButton();
+            })
+            .catch(function () { /* leave hidden-input defaults in place */ });
+
+        const pBtn = document.getElementById('paletteBtn');
+        if (pBtn) pBtn.addEventListener('click', function (ev) { ev.stopPropagation(); togglePaletteMenu(); });
+        document.addEventListener('click', function (ev) {
+            const wrap = document.querySelector('.palette-wrap');
+            if (wrap && !wrap.contains(ev.target)) closePaletteMenu();
+        });
+        const fileInput = document.getElementById('paletteImageInput');
+        if (fileInput) fileInput.addEventListener('change', function () {
+            if (fileInput.files && fileInput.files[0]) { handlePaletteImage(fileInput.files[0]); fileInput.value = ''; }
+        });
+    }
+    document.addEventListener('DOMContentLoaded', initStylePalette);
 
     function createSession(name) {
         const id = nextSessionId++;
@@ -396,6 +623,7 @@
         if (ov && String(ov).trim()) {
             body.system_prompt_override = String(ov).trim();
         }
+        applyStylePaletteToBody(body);
 
         if (loadingEl) loadingEl.classList.remove('hidden');
         if (errorEl) {

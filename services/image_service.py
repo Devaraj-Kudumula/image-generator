@@ -41,7 +41,9 @@ from prompts import (
 logger = logging.getLogger(__name__)
 
 
-ALLOWED_ASPECT_RATIOS = ("1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9")
+ALLOWED_ASPECT_RATIOS = (
+    "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "4:5", "5:4",
+)
 DEFAULT_ASPECT_RATIO = "16:9"
 
 
@@ -53,6 +55,41 @@ def normalize_aspect_ratio(value: Optional[str]) -> str:
     if candidate in ALLOWED_ASPECT_RATIOS:
         return candidate
     return DEFAULT_ASPECT_RATIO
+
+
+def extract_palette_from_data_url(image_data_url: str, count: int = 5) -> List[str]:
+    """
+    Extract up to `count` dominant colors from an image (data URL or raw base64)
+    and return them as #rrggbb hex strings, ordered most-prevalent first.
+
+    Uses PIL median-cut quantization (no OpenCV dependency) so it works in every
+    deployment environment.
+    """
+    count = max(2, min(8, int(count)))
+    image_bytes = decode_image_data_url(image_data_url)
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+
+    # Downscale large images first — palette extraction does not need full res.
+    image.thumbnail((256, 256), Image.Resampling.LANCZOS)
+
+    quantized = image.quantize(colors=count, method=Image.Quantize.MEDIANCUT)
+    palette = quantized.getpalette() or []
+    # color_counts(): list of (count, palette_index), unsorted.
+    counts = quantized.getcolors() or []
+    counts.sort(reverse=True)  # most-prevalent first
+
+    hexes: List[str] = []
+    for _freq, idx in counts:
+        base = idx * 3
+        if base + 2 >= len(palette):
+            continue
+        r, g, b = palette[base], palette[base + 1], palette[base + 2]
+        hex_str = "#{:02x}{:02x}{:02x}".format(r, g, b)
+        if hex_str not in hexes:
+            hexes.append(hex_str)
+        if len(hexes) >= count:
+            break
+    return hexes
 
 
 def _extract_gemini_usage(response: Any) -> Dict[str, Any]:
