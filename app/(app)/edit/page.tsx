@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Upload, Wand2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
@@ -10,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
-import { useGalleryStore } from "@/lib/store/generation-store";
+import { useGalleryStore, useGenerationStore } from "@/lib/store/generation-store";
 import { generateId } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -19,9 +20,11 @@ const CanvasEditor = dynamic(
   { ssr: false }
 );
 
-export default function EditPage() {
+function EditPageContent() {
+  const searchParams = useSearchParams();
   const fileRef = useRef<HTMLInputElement>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [filename, setFilename] = useState<string>("");
   const [instructions, setInstructions] = useState("");
   const [resultUrl, setResultUrl] = useState<string | null>(null);
@@ -29,6 +32,24 @@ export default function EditPage() {
   const [error, setError] = useState<string | null>(null);
   const [canvasOpen, setCanvasOpen] = useState(false);
   const addToGallery = useGalleryStore((s) => s.addImage);
+  const galleryImages = useGalleryStore((s) => s.images);
+  const generationResults = useGenerationStore((s) => s.results);
+
+  useEffect(() => {
+    const imageId = searchParams.get("image");
+    if (!imageId) return;
+
+    const galleryImage = galleryImages.find((img) => img.id === imageId);
+    const resultImage = generationResults.find((img) => img.id === imageId);
+    const source = galleryImage ?? resultImage;
+    if (!source) return;
+
+    setImageDataUrl(source.imageDataUrl ?? null);
+    setImageUrl(source.imageUrl);
+    setFilename(source.filename);
+    setInstructions(source.prompt || "");
+    setResultUrl(null);
+  }, [searchParams, galleryImages, generationResults]);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -36,6 +57,7 @@ export default function EditPage() {
     const reader = new FileReader();
     reader.onload = () => {
       setImageDataUrl(reader.result as string);
+      setImageUrl(null);
       setFilename(file.name);
       setResultUrl(null);
     };
@@ -43,7 +65,7 @@ export default function EditPage() {
   };
 
   const handleEdit = async () => {
-    if (!imageDataUrl || !instructions.trim()) {
+    if ((!imageDataUrl && !filename) || !instructions.trim()) {
       setError("Upload an image and enter edit instructions");
       return;
     }
@@ -51,8 +73,8 @@ export default function EditPage() {
     setError(null);
     try {
       const result = await api.editImage({
-        image_data_url: imageDataUrl,
-        change_instructions: instructions.trim(),
+        ...(imageDataUrl ? { image_data_url: imageDataUrl } : { filename }),
+        changes: instructions.trim(),
       });
       const url = result.image_data_url || result.image_url;
       setResultUrl(url);
@@ -73,7 +95,8 @@ export default function EditPage() {
     }
   };
 
-  const activeImage = resultUrl || imageDataUrl;
+  const activeImage =
+    resultUrl || imageDataUrl || imageUrl;
 
   return (
     <AppShell>
@@ -143,12 +166,28 @@ export default function EditPage() {
             id: "edit-preview",
             filename,
             imageUrl: activeImage,
-            imageDataUrl: activeImage.startsWith("data:") ? activeImage : undefined,
+            imageDataUrl: activeImage.startsWith("data:") ? activeImage : imageDataUrl ?? undefined,
             prompt: instructions,
             createdAt: new Date().toISOString(),
           }}
         />
       )}
     </AppShell>
+  );
+}
+
+export default function EditPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="mx-auto max-w-6xl px-4 py-8 md:px-6">
+            <p className="text-sm text-muted-foreground">Loading editor…</p>
+          </div>
+        </AppShell>
+      }
+    >
+      <EditPageContent />
+    </Suspense>
   );
 }

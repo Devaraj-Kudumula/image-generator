@@ -9,6 +9,7 @@ import {
   Sparkles,
   Target,
   Layers,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -35,6 +36,7 @@ interface ImageCardProps {
   className?: string;
   inlineActions?: boolean;
   onImageCreated?: (image: GeneratedImage) => void;
+  onDelete?: () => void;
 }
 
 export function ImageCard({
@@ -42,6 +44,7 @@ export function ImageCard({
   className,
   inlineActions = false,
   onImageCreated,
+  onDelete,
 }: ImageCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [canvasOpen, setCanvasOpen] = useState(false);
@@ -181,6 +184,12 @@ export function ImageCard({
                   Edit
                 </a>
               </Button>
+              {onDelete && (
+                <Button size="sm" variant="outline" onClick={onDelete}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </Button>
+              )}
             </div>
           )}
           {loading && <p className="text-xs text-primary">Running {loading}…</p>}

@@ -101,7 +101,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             {!health ? (
-              <Alert>Unable to reach backend. Start Flask with `python server.py` for local dev.</Alert>
+              <Alert>Unable to reach the API. Restart the dev server and confirm GOOGLE_GENERATIVE_AI_API_KEY is set in .env.</Alert>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {Object.entries(health).map(([key, value]) => (

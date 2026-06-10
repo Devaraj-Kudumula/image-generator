@@ -102,6 +102,7 @@ def _extract_openai_usage(response: Any) -> Dict[str, Any]:
 def generate_image(
     prompt: str,
     aspect_ratio: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Tuple[str, bytes, str, Dict[str, Any]]:
     """
     Generate an image using Gemini. Returns (filename, image_bytes, image_data_url, usage).
@@ -113,8 +114,9 @@ def generate_image(
         raise ValueError("Gemini client not initialized")
 
     ratio = normalize_aspect_ratio(aspect_ratio)
+    gemini_model = model or "gemini-3-pro-image-preview"
     response = state.gemini_client.models.generate_content(
-        model="gemini-3-pro-image-preview",
+        model=gemini_model,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_modalities=["IMAGE"],

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Upload, Send } from "lucide-react";
+import { Upload, Send, RotateCcw } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,6 +11,9 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { getClientSessionId } from "@/lib/utils";
+
+const NO_RAG_OPTION_VALUE = "NO_RAG";
+const WEB_RETRIEVAL_OPTION_VALUE = "WEB_RETRIEVAL";
 
 interface DocMessage {
   id: string;
@@ -106,10 +109,43 @@ export default function DocsPage() {
   };
 
   const toggleDoc = (name: string) => {
-    setSelectedDocs((prev) =>
-      prev.includes(name) ? prev.filter((d) => d !== name) : [...prev, name]
-    );
+    if (name === NO_RAG_OPTION_VALUE) {
+      setSelectedDocs((prev) =>
+        prev.includes(NO_RAG_OPTION_VALUE) ? [] : [NO_RAG_OPTION_VALUE]
+      );
+      return;
+    }
+
+    setSelectedDocs((prev) => {
+      const withoutNoRag = prev.filter((d) => d !== NO_RAG_OPTION_VALUE);
+      if (name === WEB_RETRIEVAL_OPTION_VALUE) {
+        return withoutNoRag.includes(WEB_RETRIEVAL_OPTION_VALUE)
+          ? withoutNoRag.filter((d) => d !== WEB_RETRIEVAL_OPTION_VALUE)
+          : [...withoutNoRag, WEB_RETRIEVAL_OPTION_VALUE];
+      }
+      return withoutNoRag.includes(name)
+        ? withoutNoRag.filter((d) => d !== name)
+        : [...withoutNoRag, name];
+    });
   };
+
+  const handleResetSession = async () => {
+    if (!sessionId || disabled) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.resetSession(sessionId);
+      setMessages([]);
+      await refreshDocs(sessionId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset session");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const noRagSelected = selectedDocs.includes(NO_RAG_OPTION_VALUE);
+  const webRetrievalSelected = selectedDocs.includes(WEB_RETRIEVAL_OPTION_VALUE);
 
   return (
     <AppShell>
@@ -140,6 +176,16 @@ export default function DocsPage() {
               Upload PDF
             </Button>
 
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => void handleResetSession()}
+              disabled={loading || disabled}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset session
+            </Button>
+
             {disabled && (
               <Alert className="text-xs">
                 RAG is disabled. Configure MONGODB_URI and OPENAI_API_KEY to enable document chat.
@@ -148,12 +194,30 @@ export default function DocsPage() {
 
             <ScrollArea className="max-h-64">
               <div className="flex flex-wrap gap-2">
+                <Badge
+                  variant={noRagSelected ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => toggleDoc(NO_RAG_OPTION_VALUE)}
+                >
+                  Don&apos;t use my documents
+                </Badge>
+                <Badge
+                  variant={webRetrievalSelected ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => toggleDoc(WEB_RETRIEVAL_OPTION_VALUE)}
+                >
+                  Include web search
+                </Badge>
                 {docNames.map((name) => (
                   <Badge
                     key={name}
-                    variant={selectedDocs.includes(name) ? "default" : "outline"}
-                    className="cursor-pointer"
-                    onClick={() => toggleDoc(name)}
+                    variant={
+                      !noRagSelected && selectedDocs.includes(name)
+                        ? "default"
+                        : "outline"
+                    }
+                    className={`cursor-pointer ${noRagSelected ? "opacity-50" : ""}`}
+                    onClick={() => !noRagSelected && toggleDoc(name)}
                   >
                     {name}
                   </Badge>

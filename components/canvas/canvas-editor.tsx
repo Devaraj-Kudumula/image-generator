@@ -100,7 +100,7 @@ type FabricCanvas = {
 
 async function loadFabric(): Promise<FabricModule> {
   const mod = await import("fabric");
-  return mod.fabric ?? mod.default?.fabric ?? mod.default;
+  return (mod.fabric ?? mod.default?.fabric ?? mod.default) as unknown as FabricModule;
 }
 
 function fitCanvasToContent(fabricCanvas: FabricCanvas) {

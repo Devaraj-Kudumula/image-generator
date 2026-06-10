@@ -246,13 +246,13 @@ export const useChatStore = create<ChatState>()(
             ...m,
             parts: m.parts?.map((p) =>
               p.type === "file" ? { ...p, data: "" } : p
-            ),
+            ) as UIMessage["parts"],
           })),
         })),
         activeSessionId: state.activeSessionId,
       }),
       migrate: (persisted) => {
-        const state = persisted as ChatState;
+        const state = persisted as Pick<ChatState, "sessions" | "activeSessionId">;
         if (state?.sessions) {
           state.sessions = state.sessions.map((s) => ({
             ...s,

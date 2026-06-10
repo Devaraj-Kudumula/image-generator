@@ -25,6 +25,19 @@ interface PromptInputProps {
 
 const STYLE_OPTIONS = ["flat", "realistic", "diagram", "histology"] as const;
 
+const STYLE_PROMPT_PREFIX: Record<(typeof STYLE_OPTIONS)[number], string> = {
+  flat: "",
+  realistic: "Photorealistic medical illustration: ",
+  diagram: "Scientific diagram style: ",
+  histology: "Histology microscopy slide style: ",
+};
+
+function applyStylePrefix(prompt: string, styleValue: string): string {
+  const prefix =
+    STYLE_PROMPT_PREFIX[styleValue as (typeof STYLE_OPTIONS)[number]] ?? "";
+  return prefix ? `${prefix}${prompt}` : prompt;
+}
+
 export function PromptInput({ onGenerated }: PromptInputProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const styleMenuRef = useRef<HTMLDivElement>(null);
@@ -85,7 +98,8 @@ export function PromptInput({ onGenerated }: PromptInputProps) {
     setError(null);
 
     try {
-      const fullPrompt = `${categoryPromptPrefix(category)}${trimmed}`.trim();
+      const categoryPrompt = `${categoryPromptPrefix(category)}${trimmed}`.trim();
+      const fullPrompt = applyStylePrefix(categoryPrompt, style);
       let result;
 
       if (inputMode === "enhance" || inputMode === "sketch" || inputMode === "reference") {
@@ -103,12 +117,13 @@ export function PromptInput({ onGenerated }: PromptInputProps) {
 
         result = await api.editImage({
           image_data_url: referenceDataUrl,
-          change_instructions: instructions,
+          changes: instructions,
         });
       } else {
         result = await api.generateImage({
           prompt: fullPrompt,
           aspect_ratio: aspectRatio,
+          model,
         });
       }
 

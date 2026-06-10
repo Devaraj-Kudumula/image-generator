@@ -14,13 +14,14 @@ export interface GeneratedImage {
 export interface GenerateImageBody {
   prompt: string;
   aspect_ratio?: AspectRatio;
+  model?: string;
   session_id?: string;
 }
 
 export interface EditImageBody {
   filename?: string;
   image_data_url?: string;
-  change_instructions: string;
+  changes: string;
   session_id?: string;
 }
 
@@ -75,7 +76,7 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
       if (!res.ok) {
         throw new Error(
           res.status >= 500
-            ? "Backend unavailable. Start Flask in another terminal: conda activate img && python server.py"
+            ? "Image API request failed. Check that GOOGLE_GENERATIVE_AI_API_KEY is set in .env and restart the dev server."
             : text || `Request failed: ${res.status}`
         );
       }
@@ -122,6 +123,7 @@ export const api = {
       image_url: string;
       filename: string;
       image_data_url?: string;
+      aspect_ratio?: string;
     }>("/api/edit-image", body),
 
   getAccurate: (body: GetAccurateBody) =>

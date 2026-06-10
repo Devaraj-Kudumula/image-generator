@@ -41,6 +41,7 @@ def register(app):
             aspect_ratio = image_service.normalize_aspect_ratio(
                 data.get('aspect_ratio')
             )
+            model = data.get('model') or None
 
             if not prompt:
                 logger.warning("Request missing prompt")
@@ -65,7 +66,7 @@ def register(app):
             logger.info("Calling Gemini API...")
             api_start = time.time()
             filename, image_bytes, image_data_url, gemini_usage = image_service.generate_image(
-                prompt, aspect_ratio=aspect_ratio
+                prompt, aspect_ratio=aspect_ratio, model=model
             )
             api_time = time.time() - api_start
             logger.info("Gemini API response received in %.2fs", api_time)
