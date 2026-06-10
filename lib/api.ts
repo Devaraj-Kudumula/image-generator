@@ -1,5 +1,39 @@
 export type AspectRatio = "auto" | "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
 
+/** Aspect ratios used by AI Chat (mirrors static/ai_chat.js). */
+export type ChatAspectRatio =
+  | "1:1"
+  | "4:3"
+  | "3:4"
+  | "16:9"
+  | "9:16"
+  | "3:2"
+  | "2:3"
+  | "21:9";
+
+export const CHAT_ASPECT_RATIOS: Array<{
+  value: ChatAspectRatio;
+  label: string;
+}> = [
+  { value: "16:9", label: "16:9 — Widescreen" },
+  { value: "9:16", label: "9:16 — Portrait" },
+  { value: "1:1", label: "1:1 — Square" },
+  { value: "4:3", label: "4:3 — Standard" },
+  { value: "3:4", label: "3:4 — Tall" },
+  { value: "3:2", label: "3:2 — Photo" },
+  { value: "2:3", label: "2:3 — Photo tall" },
+  { value: "21:9", label: "21:9 — Ultrawide" },
+];
+
+export const DEFAULT_CHAT_ASPECT_RATIO: ChatAspectRatio = "16:9";
+
+export type ImageKind =
+  | "generated"
+  | "edited"
+  | "refined_prompt"
+  | "accurate"
+  | "canvas_edited";
+
 export interface GeneratedImage {
   id: string;
   filename: string;
@@ -8,12 +42,15 @@ export interface GeneratedImage {
   prompt: string;
   aspectRatio?: string;
   createdAt: string;
-  kind?: "generated" | "edited" | "refined" | "accurate";
+  kind?: ImageKind;
+  meta?: string;
+  parentImageId?: string;
+  accuracyTrace?: unknown;
 }
 
 export interface GenerateImageBody {
   prompt: string;
-  aspect_ratio?: AspectRatio;
+  aspect_ratio?: AspectRatio | ChatAspectRatio;
   model?: string;
   session_id?: string;
 }
@@ -22,13 +59,17 @@ export interface EditImageBody {
   filename?: string;
   image_data_url?: string;
   changes: string;
+  aspect_ratio?: ChatAspectRatio;
   session_id?: string;
 }
 
 export interface GetAccurateBody {
   filename?: string;
   image_data_url?: string;
+  original_prompt?: string;
   prompt?: string;
+  include_trace?: boolean;
+  aspect_ratio?: ChatAspectRatio;
   session_id?: string;
 }
 
@@ -92,11 +133,21 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Network error";
+    throw new Error(
+      detail === "fetch failed" || detail === "Failed to fetch"
+        ? "Request failed — the server may still be processing, or Python dependencies are missing. Run: pip install -r requirements.txt"
+        : detail
+    );
+  }
   return parseJsonResponse<T>(res);
 }
 
@@ -115,6 +166,7 @@ export const api = {
       filename: string;
       image_data_url?: string;
       aspect_ratio?: string;
+      image_prompt?: string;
     }>("/api/generate-image", body),
 
   editImage: (body: EditImageBody) =>
@@ -132,6 +184,10 @@ export const api = {
       image_url: string;
       filename: string;
       image_data_url?: string;
+      aspect_ratio?: string;
+      flaws_detected?: number;
+      iterations?: number;
+      accuracy_trace?: unknown;
     }>("/api/get-accurate", body),
 
   refinedPromptImage: (body: GetAccurateBody) =>
@@ -140,6 +196,10 @@ export const api = {
       image_url: string;
       filename: string;
       image_data_url?: string;
+      aspect_ratio?: string;
+      refined_prompt?: string;
+      vision_analysis?: string;
+      refined_regen_trace?: unknown;
     }>("/api/refined-prompt-image", body),
 
   vectorizeImage: (body: VectorizeBody) =>
@@ -161,7 +221,7 @@ export const api = {
     get<{ themes: Record<string, ChatTheme> }>("/api/ai-chat-themes"),
 
   chatMessage: (body: ChatMessageBody) =>
-    post<{ reply: string; usage?: Record<string, unknown> }>(
+    post<{ answer: string; usage?: Record<string, unknown> }>(
       "/api/ai-chat-message",
       body
     ),

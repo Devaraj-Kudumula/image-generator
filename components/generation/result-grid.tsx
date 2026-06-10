@@ -72,7 +72,7 @@ export function ImageCard({
         imageUrl: result.image_url,
         imageDataUrl: result.image_data_url,
         prompt: image.prompt,
-        kind: action === "accurate" ? "accurate" : "refined",
+        kind: action === "accurate" ? "accurate" : "refined_prompt",
       });
       addToGallery(entry);
       onImageCreated?.(entry);

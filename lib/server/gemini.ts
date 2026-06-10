@@ -3,10 +3,13 @@ import { GoogleGenAI } from "@google/genai";
 import { normalizeAspectRatio } from "@/lib/server/aspect-ratio";
 import {
   decodeImageDataUrl,
+  describeGeminiImageFailure,
   extractPngBytesFromGeminiResponse,
   imageBytesToDataUrl,
+  shouldRetryGeminiImageGeneration,
   timestampFilename,
 } from "@/lib/server/image-utils";
+import { imagePromptVariants } from "@/lib/server/prepare-image-prompt";
 import { getImageBytes, storeImage } from "@/lib/server/image-store";
 import { EDIT_IMAGE_USER_PREFIX } from "@/lib/server/prompts";
 
@@ -45,31 +48,55 @@ function persistImage(bytes: Buffer, prefix: string) {
   };
 }
 
+async function requestGeminiImage(
+  prompt: string,
+  aspectRatio: string,
+  model: string
+) {
+  const gemini = getGeminiClient();
+  const response = await gemini.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      responseModalities: ["IMAGE"],
+      imageConfig: { aspectRatio },
+    },
+  });
+
+  return {
+    response,
+    imageBytes: extractPngBytesFromGeminiResponse(response),
+  };
+}
+
 export async function generateImageWithGemini(options: {
   prompt: string;
   aspectRatio?: string | null;
   model?: string | null;
 }) {
-  const gemini = getGeminiClient();
   const ratio = normalizeAspectRatio(options.aspectRatio);
   const model = options.model || DEFAULT_MODEL;
+  const prompts = imagePromptVariants(options.prompt);
 
-  const response = await gemini.models.generateContent({
-    model,
-    contents: options.prompt,
-    config: {
-      responseModalities: ["TEXT", "IMAGE"],
-      imageConfig: { aspectRatio: ratio },
-    },
-  });
+  let lastError = "No image generated in response";
 
-  const imageBytes = extractPngBytesFromGeminiResponse(response);
-  if (!imageBytes?.length) {
-    throw new Error("No image generated in response");
+  for (let index = 0; index < prompts.length; index += 1) {
+    const prompt = prompts[index];
+    const { response, imageBytes } = await requestGeminiImage(prompt, ratio, model);
+
+    if (imageBytes?.length) {
+      const saved = persistImage(imageBytes, "image");
+      return { ...saved, aspectRatio: ratio, imagePrompt: prompt };
+    }
+
+    lastError = describeGeminiImageFailure(response);
+    const hasAnotherVariant = index < prompts.length - 1;
+    if (!hasAnotherVariant || !shouldRetryGeminiImageGeneration(response)) {
+      break;
+    }
   }
 
-  const saved = persistImage(imageBytes, "image");
-  return { ...saved, aspectRatio: ratio };
+  throw new Error(lastError);
 }
 
 function loadImageForEdit(filename: string, imageDataUrl?: string): Buffer {
@@ -114,14 +141,14 @@ export async function editImageWithGemini(options: {
       },
     ],
     config: {
-      responseModalities: ["TEXT", "IMAGE"],
+      responseModalities: ["IMAGE"],
       imageConfig: { aspectRatio: ratio },
     },
   });
 
   const editedBytes = extractPngBytesFromGeminiResponse(response);
   if (!editedBytes?.length) {
-    throw new Error("No edited image generated in response");
+    throw new Error(describeGeminiImageFailure(response));
   }
 
   const saved = persistImage(editedBytes, "edited");

@@ -3,13 +3,19 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Upload, Wand2 } from "lucide-react";
+import { Expand, Upload, Wand2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { useGalleryStore, useGenerationStore } from "@/lib/store/generation-store";
 import { generateId } from "@/lib/utils";
@@ -31,6 +37,7 @@ function EditPageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [canvasOpen, setCanvasOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const addToGallery = useGalleryStore((s) => s.addImage);
   const galleryImages = useGalleryStore((s) => s.images);
   const generationResults = useGenerationStore((s) => s.results);
@@ -147,16 +154,60 @@ function EditPageContent() {
           </div>
         </div>
 
-        <Card className="flex min-h-[400px] items-center justify-center overflow-hidden bg-muted/30 p-4">
+        <Card className="flex min-h-[400px] flex-col overflow-hidden bg-muted/30 p-4">
           {activeImage ? (
-            <div className="relative h-full min-h-[360px] w-full">
-              <Image src={activeImage} alt="Preview" fill className="object-contain" unoptimized />
-            </div>
+            <>
+              <button
+                type="button"
+                className="relative min-h-[360px] w-full flex-1 cursor-zoom-in"
+                onClick={() => setPreviewOpen(true)}
+                aria-label="Preview image"
+              >
+                <Image
+                  src={activeImage}
+                  alt="Preview"
+                  fill
+                  className="object-contain"
+                  unoptimized
+                />
+              </button>
+              <div className="mt-3 flex justify-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPreviewOpen(true)}
+                >
+                  <Expand className="h-3.5 w-3.5" />
+                  Zoom preview
+                </Button>
+              </div>
+            </>
           ) : (
-            <p className="text-sm text-muted-foreground">Preview will appear here</p>
+            <div className="flex flex-1 items-center justify-center">
+              <p className="text-sm text-muted-foreground">Preview will appear here</p>
+            </div>
           )}
         </Card>
       </div>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Preview</DialogTitle>
+          </DialogHeader>
+          {activeImage && (
+            <div className="relative aspect-video w-full">
+              <Image
+                src={activeImage}
+                alt="Preview"
+                fill
+                className="object-contain"
+                unoptimized
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {activeImage && (
         <CanvasEditor

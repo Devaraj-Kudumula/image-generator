@@ -1,10 +1,10 @@
 "use client";
 
-import { useTheme } from "next-themes";
-import { Menu, Moon, Sun } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { MobileNav } from "@/components/layout/sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useSidebarStore } from "@/lib/store/generation-store";
 
 const titles: Record<string, string> = {
@@ -17,7 +17,6 @@ const titles: Record<string, string> = {
 };
 
 export function TopBar() {
-  const { theme, setTheme } = useTheme();
   const { setMobileOpen } = useSidebarStore();
 
   return (
@@ -46,15 +45,7 @@ export function TopBar() {
         </div>
       </div>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        aria-label="Toggle theme"
-      >
-        <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-        <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-      </Button>
+      <ThemeToggle />
     </header>
   );
 }

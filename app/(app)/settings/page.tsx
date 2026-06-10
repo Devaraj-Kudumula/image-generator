@@ -21,6 +21,11 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const { model, setModel, aspectRatio, setAspectRatio } = useGenerationStore();
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     void api.health().then(setHealth).catch(() => setHealth(null));
@@ -44,7 +49,10 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Theme</Label>
-              <Select value={theme} onValueChange={setTheme}>
+              <Select
+                value={mounted ? (theme ?? "dark") : "dark"}
+                onValueChange={setTheme}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

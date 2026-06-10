@@ -28,6 +28,7 @@ export async function POST(req: Request) {
       filename: result.filename,
       image_data_url: result.imageDataUrl,
       aspect_ratio: result.aspectRatio,
+      image_prompt: result.imagePrompt,
     });
   } catch (error) {
     const message =

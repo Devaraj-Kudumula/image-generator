@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { UIMessage } from "ai";
-import type { AspectRatio, GeneratedImage } from "@/lib/api";
+import type { AspectRatio, ChatAspectRatio, GeneratedImage } from "@/lib/api";
+import { DEFAULT_CHAT_ASPECT_RATIO } from "@/lib/api";
 import { generateId } from "@/lib/utils";
 
 export type GenerationMode = "illustration" | "flowchart";
@@ -123,20 +124,29 @@ export interface ChatSession {
   }>;
   uiMessages: UIMessage[];
   images: ChatImage[];
+  /** Theme message ids that already received the kickoff assistant reply. */
+  themeKickoffIds: string[];
+  /** Assistant uiMessage ids that are theme kickoff acknowledgments (not image prompts). */
+  kickoffAssistantMessageIds: string[];
 }
 
 interface ChatState {
   sessions: ChatSession[];
   activeSessionId: string | null;
+  chatAspectRatio: ChatAspectRatio;
   createSession: () => ChatSession;
   setActiveSession: (id: string) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, name: string) => void;
+  clearSession: (id: string) => void;
+  setChatAspectRatio: (ratio: ChatAspectRatio) => void;
   addMessage: (sessionId: string, message: ChatSession["messages"][0]) => void;
   addImage: (sessionId: string, image: ChatImage) => void;
   setTheme: (sessionId: string, themeId: string, themeLabel: string, prompt: string) => void;
   clearTheme: (sessionId: string) => void;
   setUiMessages: (sessionId: string, messages: UIMessage[]) => void;
+  markThemeKickoff: (sessionId: string, themeMessageId: string) => void;
+  markKickoffAssistantMessage: (sessionId: string, messageId: string) => void;
 }
 
 const defaultSession = (): ChatSession => ({
@@ -147,6 +157,8 @@ const defaultSession = (): ChatSession => ({
   messages: [],
   uiMessages: [],
   images: [],
+  themeKickoffIds: [],
+  kickoffAssistantMessageIds: [],
 });
 
 export const useChatStore = create<ChatState>()(
@@ -154,6 +166,7 @@ export const useChatStore = create<ChatState>()(
     (set, get) => ({
       sessions: [defaultSession()],
       activeSessionId: null,
+      chatAspectRatio: DEFAULT_CHAT_ASPECT_RATIO,
       createSession: () => {
         const session = defaultSession();
         set((state) => ({
@@ -180,6 +193,24 @@ export const useChatStore = create<ChatState>()(
             s.id === id ? { ...s, name } : s
           ),
         })),
+      clearSession: (id) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id
+              ? {
+                  ...s,
+                  themeId: null,
+                  themeLabel: null,
+                  messages: [],
+                  uiMessages: [],
+                  images: [],
+                  themeKickoffIds: [],
+                  kickoffAssistantMessageIds: [],
+                }
+              : s
+          ),
+        })),
+      setChatAspectRatio: (chatAspectRatio) => set({ chatAspectRatio }),
       addMessage: (sessionId, message) =>
         set((state) => ({
           sessions: state.sessions.map((s) =>
@@ -203,7 +234,7 @@ export const useChatStore = create<ChatState>()(
                   themeId,
                   themeLabel,
                   messages: [
-                    ...s.messages.filter((m) => m.role !== "theme"),
+                    ...s.messages,
                     {
                       id: generateId("theme"),
                       role: "theme" as const,
@@ -235,6 +266,34 @@ export const useChatStore = create<ChatState>()(
             s.id === sessionId ? { ...s, uiMessages } : s
           ),
         })),
+      markThemeKickoff: (sessionId, themeMessageId) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  themeKickoffIds: s.themeKickoffIds.includes(themeMessageId)
+                    ? s.themeKickoffIds
+                    : [...s.themeKickoffIds, themeMessageId],
+                }
+              : s
+          ),
+        })),
+      markKickoffAssistantMessage: (sessionId, messageId) =>
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === sessionId
+              ? {
+                  ...s,
+                  kickoffAssistantMessageIds: s.kickoffAssistantMessageIds.includes(
+                    messageId
+                  )
+                    ? s.kickoffAssistantMessageIds
+                    : [...s.kickoffAssistantMessageIds, messageId],
+                }
+              : s
+          ),
+        })),
     }),
     {
       name: "chat-store",
@@ -250,14 +309,23 @@ export const useChatStore = create<ChatState>()(
           })),
         })),
         activeSessionId: state.activeSessionId,
+        chatAspectRatio: state.chatAspectRatio,
       }),
       migrate: (persisted) => {
-        const state = persisted as Pick<ChatState, "sessions" | "activeSessionId">;
+        const state = persisted as Pick<
+          ChatState,
+          "sessions" | "activeSessionId" | "chatAspectRatio"
+        >;
         if (state?.sessions) {
           state.sessions = state.sessions.map((s) => ({
             ...s,
             uiMessages: s.uiMessages ?? [],
+            themeKickoffIds: s.themeKickoffIds ?? [],
+            kickoffAssistantMessageIds: s.kickoffAssistantMessageIds ?? [],
           }));
+        }
+        if (!state.chatAspectRatio) {
+          state.chatAspectRatio = DEFAULT_CHAT_ASPECT_RATIO;
         }
         return state;
       },

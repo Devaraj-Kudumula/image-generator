@@ -24,6 +24,7 @@ interface CanvasEditorProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   image: GeneratedImage;
+  onSaveToChat?: (pngDataUrl: string) => void;
 }
 
 type FabricModule = {
@@ -262,7 +263,12 @@ async function loadSvgIntoCanvas(
   });
 }
 
-export function CanvasEditor({ open, onOpenChange, image }: CanvasEditorProps) {
+export function CanvasEditor({
+  open,
+  onOpenChange,
+  image,
+  onSaveToChat,
+}: CanvasEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<FabricModule | null>(null);
   const fabricCanvasRef = useRef<FabricCanvas | null>(null);
@@ -451,13 +457,25 @@ export function CanvasEditor({ open, onOpenChange, image }: CanvasEditorProps) {
     URL.revokeObjectURL(url);
   };
 
-  const exportPng = () => {
+  const exportPngDataUrl = () => {
     const canvas = fabricCanvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
+    return canvas.toDataURL({ format: "png", quality: 1, multiplier: 3 });
+  };
+
+  const exportPng = () => {
+    const dataUrl = exportPngDataUrl();
+    if (!dataUrl) return;
     const link = document.createElement("a");
-    link.href = canvas.toDataURL({ format: "png", quality: 1, multiplier: 3 });
+    link.href = dataUrl;
     link.download = `${image.filename || "figure"}.png`;
     link.click();
+  };
+
+  const saveToChat = () => {
+    const dataUrl = exportPngDataUrl();
+    if (!dataUrl || !onSaveToChat) return;
+    onSaveToChat(dataUrl);
   };
 
   const runAiReconstruct = async () => {
@@ -563,6 +581,11 @@ export function CanvasEditor({ open, onOpenChange, image }: CanvasEditorProps) {
                 <Download className="h-4 w-4" />
                 PNG
               </Button>
+              {onSaveToChat && (
+                <Button size="sm" variant="default" onClick={saveToChat}>
+                  Save to chat
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="secondary"

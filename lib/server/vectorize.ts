@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { decodeImageDataUrl, imageBytesToDataUrl } from "@/lib/server/image-utils";
 import { getImageBytes } from "@/lib/server/image-store";
@@ -24,6 +25,15 @@ function resolvePythonExecutable(): string {
   }
   if (process.env.CONDA_PREFIX) {
     return path.join(process.env.CONDA_PREFIX, "bin", "python");
+  }
+  const candidates = [
+    process.env.HOME
+      ? path.join(process.env.HOME, "miniconda3/envs/img/bin/python")
+      : null,
+    "/opt/miniconda3/envs/img/bin/python",
+  ].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
   }
   return "python3";
 }

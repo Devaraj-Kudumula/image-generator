@@ -17,30 +17,117 @@ export function decodeImageDataUrl(imageDataUrl: string): Buffer {
   return Buffer.from(normalized, "base64");
 }
 
-interface GeminiPart {
-  inlineData?: { data?: string | Uint8Array; mimeType?: string };
-}
+type GeminiInlineData = {
+  data?: string | Uint8Array | ArrayBuffer;
+  mimeType?: string;
+  mime_type?: string;
+};
+
+type GeminiPart = {
+  text?: string;
+  inlineData?: GeminiInlineData;
+  inline_data?: GeminiInlineData;
+};
 
 interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
+  candidates?: Array<{
+    content?: { parts?: GeminiPart[] };
+    finishReason?: string;
+    finish_reason?: string;
+  }>;
+  promptFeedback?: {
+    blockReason?: string;
+    block_reason?: string;
+    blockReasonMessage?: string;
+    block_reason_message?: string;
+  };
+}
+
+function getInlineData(part: GeminiPart): GeminiInlineData | null {
+  const inline = part.inlineData ?? part.inline_data;
+  return inline && typeof inline === "object" ? inline : null;
+}
+
+function inlineDataToBuffer(inline: GeminiInlineData): Buffer | null {
+  const data = inline.data;
+  if (!data) return null;
+
+  if (typeof data === "string") {
+    return Buffer.from(data, "base64");
+  }
+  if (data instanceof ArrayBuffer) {
+    return Buffer.from(data);
+  }
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return null;
 }
 
 export function extractPngBytesFromGeminiResponse(
   response: GeminiResponse
 ): Buffer | null {
-  const parts = response.candidates?.[0]?.content?.parts;
-  if (!parts?.length) return null;
+  for (const candidate of response.candidates ?? []) {
+    const parts = candidate.content?.parts;
+    if (!parts?.length) continue;
 
-  for (const part of parts) {
-    const data = part.inlineData?.data;
-    if (!data) continue;
-    if (typeof data === "string") {
-      return Buffer.from(data, "base64");
+    for (const part of parts) {
+      const inline = getInlineData(part);
+      if (!inline) continue;
+      const bytes = inlineDataToBuffer(inline);
+      if (bytes?.length) return bytes;
     }
-    return Buffer.from(data);
   }
 
   return null;
+}
+
+export function getGeminiFinishReason(response: GeminiResponse): string | undefined {
+  const candidate = response.candidates?.[0];
+  return candidate?.finishReason ?? candidate?.finish_reason;
+}
+
+export function shouldRetryGeminiImageGeneration(
+  response: GeminiResponse
+): boolean {
+  const finishReason = getGeminiFinishReason(response);
+  if (!finishReason) return true;
+  return finishReason === "NO_IMAGE" || finishReason === "IMAGE_OTHER";
+}
+
+export function describeGeminiImageFailure(response: GeminiResponse): string {
+  const feedback = response.promptFeedback;
+  const blockReason = feedback?.blockReason ?? feedback?.block_reason;
+  if (blockReason) {
+    const detail =
+      feedback?.blockReasonMessage ?? feedback?.block_reason_message;
+    return detail
+      ? `Image request blocked (${blockReason}): ${detail}`
+      : `Image request blocked (${blockReason})`;
+  }
+
+  const candidate = response.candidates?.[0];
+  if (!candidate) {
+    return "No image generated in response (empty candidates)";
+  }
+
+  const finishReason = candidate.finishReason ?? candidate.finish_reason;
+  if (finishReason && finishReason !== "STOP") {
+    return `No image generated in response (finish reason: ${finishReason})`;
+  }
+
+  const parts = candidate.content?.parts ?? [];
+  const textParts = parts
+    .map((part) => part.text?.trim())
+    .filter((text): text is string => Boolean(text));
+  if (textParts.length) {
+    const preview = textParts.join(" ").slice(0, 160);
+    return `No image generated in response. Model returned text instead: ${preview}${
+      preview.length >= 160 ? "…" : ""
+    }`;
+  }
+
+  return "No image generated in response";
 }
 
 export function timestampFilename(prefix: string): string {

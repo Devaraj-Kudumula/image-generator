@@ -12,10 +12,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Alert } from "@/components/ui/alert";
 import { StreamingChat } from "@/components/chat/streaming-chat";
+import { ChatImagePanel } from "@/components/chat/chat-image-panel";
 import { useChatStore } from "@/lib/store/generation-store";
 import { api, type ChatTheme } from "@/lib/api";
-import { BUILT_IN_THEMES, mergeChatThemes } from "@/lib/chat-themes";
+import { BUILT_IN_THEMES, mergeChatThemes, THEME_ORDER } from "@/lib/chat-themes";
+
+function getSessionSubtitle(
+  uiMessages: Array<{ role: string; parts?: Array<{ type: string; text?: string }> }>
+): string {
+  for (let i = uiMessages.length - 1; i >= 0; i -= 1) {
+    const msg = uiMessages[i];
+    if (msg.role !== "user") continue;
+    const text = (msg.parts ?? [])
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("")
+      .trim();
+    if (text) {
+      return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+    }
+  }
+  return "No messages yet";
+}
 
 export default function ChatPage() {
   const {
@@ -27,8 +47,11 @@ export default function ChatPage() {
     renameSession,
     setTheme,
     clearTheme,
+    clearSession,
   } = useChatStore();
   const [themes, setThemes] = useState<Record<string, ChatTheme>>(BUILT_IN_THEMES);
+  const [themeError, setThemeError] = useState<string | null>(null);
+  const [chatResetKey, setChatResetKey] = useState(0);
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0],
@@ -48,95 +71,171 @@ export default function ChatPage() {
       .catch(() => setThemes(BUILT_IN_THEMES));
   }, []);
 
-  const systemOverride = activeSession?.messages.find((m) => m.role === "theme")?.content;
+  const systemOverride = [...(activeSession?.messages ?? [])]
+    .reverse()
+    .find((m) => m.role === "theme")?.content;
+
+  const orderedThemeIds = useMemo(() => {
+    const keys: string[] = [];
+    for (const id of THEME_ORDER) {
+      if (themes[id]) keys.push(id);
+    }
+    for (const id of Object.keys(themes).sort()) {
+      if (!keys.includes(id)) keys.push(id);
+    }
+    return keys;
+  }, [themes]);
+
+  const messageCount = activeSession?.uiMessages.length ?? 0;
+  const imageCount = activeSession?.images.length ?? 0;
+
+  const handleClearChat = () => {
+    if (!activeSession) return;
+    if (!messageCount && !imageCount) return;
+    if (
+      !confirm("Clear all messages and images in this chat?")
+    ) {
+      return;
+    }
+    clearSession(activeSession.id);
+    setChatResetKey((key) => key + 1);
+  };
 
   return (
     <AppShell>
       <div className="flex h-[calc(100vh-3.5rem)]">
         <aside className="hidden w-64 shrink-0 border-r bg-sidebar md:flex md:flex-col">
           <div className="flex items-center justify-between border-b p-3">
-            <p className="text-sm font-medium">Chats</p>
+            <p className="text-sm font-medium">
+              Chats
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {sessions.length === 1 ? "1 session" : `${sessions.length} sessions`}
+              </span>
+            </p>
             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={createSession}>
               <Plus className="h-4 w-4" />
             </Button>
           </div>
           <ScrollArea className="flex-1 p-2">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => setActiveSession(session.id)}
-                className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm ${
-                  session.id === activeSession?.id
-                    ? "bg-sidebar-accent font-medium"
-                    : "text-muted-foreground hover:bg-sidebar-accent"
-                }`}
-              >
-                {session.name}
-              </button>
-            ))}
+            {sessions.map((session) => {
+              const subtitle = getSessionSubtitle(session.uiMessages);
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => setActiveSession(session.id)}
+                  className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm ${
+                    session.id === activeSession?.id
+                      ? "bg-sidebar-accent font-medium"
+                      : "text-muted-foreground hover:bg-sidebar-accent"
+                  }`}
+                >
+                  <span className="block truncate">{session.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {subtitle}
+                  </span>
+                </button>
+              );
+            })}
           </ScrollArea>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
-            <Select
-              value={activeSession?.themeId ?? "none"}
-              onValueChange={(themeId) => {
-                if (!activeSession) return;
-                if (themeId === "none") {
-                  clearTheme(activeSession.id);
-                  return;
-                }
-                const theme = themes[themeId];
-                if (!theme) return;
-                setTheme(activeSession.id, themeId, theme.label, theme.prompt);
-              }}
-            >
-              <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="Select theme" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No theme</SelectItem>
-                {Object.entries(themes).map(([id, theme]) => (
-                  <SelectItem key={id} value={id}>
-                    {theme.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {activeSession && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const name = prompt("Rename chat", activeSession.name);
-                    if (name?.trim()) renameSession(activeSession.id, name.trim());
+        <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:border-r">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {activeSession?.name ?? "Chat"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {messageCount === 0 && imageCount === 0
+                    ? "Type a question below to start."
+                    : `${messageCount} message${messageCount !== 1 ? "s" : ""} · ${imageCount} image${imageCount !== 1 ? "s" : ""}`}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={activeSession?.themeId ?? "none"}
+                  onValueChange={(themeId) => {
+                    if (!activeSession) return;
+                    setThemeError(null);
+                    if (themeId === "none") {
+                      clearTheme(activeSession.id);
+                      return;
+                    }
+                    const theme = themes[themeId];
+                    if (!theme) return;
+                    const prompt = (theme.prompt || "").trim();
+                    if (!prompt) {
+                      setThemeError(
+                        "This theme has no prompt text yet. Edit lib/chat-themes.json."
+                      );
+                      return;
+                    }
+                    setTheme(activeSession.id, themeId, theme.label, prompt);
                   }}
                 >
-                  Rename
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => deleteSession(activeSession.id)}
-                >
-                  Delete
-                </Button>
-              </>
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue placeholder="Select theme" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No theme</SelectItem>
+                    {orderedThemeIds.map((id) => (
+                      <SelectItem key={id} value={id}>
+                        {themes[id].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {activeSession && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const name = prompt("Rename chat", activeSession.name);
+                        if (name?.trim()) renameSession(activeSession.id, name.trim());
+                      }}
+                    >
+                      Rename
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleClearChat}
+                    >
+                      Clear messages
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => deleteSession(activeSession.id)}
+                    >
+                      Delete
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {themeError && (
+              <Alert className="mx-4 mt-3 border-destructive/50 text-destructive">
+                {themeError}
+              </Alert>
             )}
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              {activeSession && (
+                <StreamingChat
+                  key={`${activeSession.id}-${chatResetKey}`}
+                  sessionId={activeSession.id}
+                  systemPromptOverride={systemOverride}
+                />
+              )}
+            </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            {activeSession && (
-              <StreamingChat
-                key={activeSession.id}
-                sessionId={activeSession.id}
-                systemPromptOverride={systemOverride}
-              />
-            )}
-          </div>
+          {activeSession && <ChatImagePanel sessionId={activeSession.id} />}
         </div>
       </div>
     </AppShell>

@@ -13,7 +13,7 @@ from flask import request, jsonify
 
 import config
 from app_state import state
-from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS
+from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS, build_theme_system_prompt
 
 from routes.constants import API_PREFIX
 
@@ -190,7 +190,7 @@ def register(app):
                                 f"system_prompt_override exceeds {_AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS} characters"
                             ),
                         }), 400
-                    system_text = stripped
+                    system_text = build_theme_system_prompt(stripped)
 
             if not user_message:
                 return jsonify({"error": "user_message is required"}), 400
