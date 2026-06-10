@@ -13,11 +13,13 @@ from services import rag_service
 from services import ondemand_docs_service
 from prompts import CHAT_WITH_DOCS_SYSTEM, CHAT_WITH_DOCS_USER_TEMPLATE
 
+from routes.constants import API_PREFIX
+
 logger = logging.getLogger(__name__)
 
 
 def register(app):
-    @app.route('/chat-with-docs', methods=['POST'])
+    @app.route(f'{API_PREFIX}/chat-with-docs', methods=['POST'])
     def chat_with_docs():
         """Answer direct user questions using retrieved document chunks."""
         request_start = time.time()
@@ -129,7 +131,7 @@ def register(app):
             logger.error(traceback.format_exc())
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/doc-names', methods=['GET'])
+    @app.route(f'{API_PREFIX}/doc-names', methods=['GET'])
     def get_doc_names():
         """Return distinct source document names available in the vector store."""
         session_id = (request.args.get('session_id') or '').strip()
@@ -150,7 +152,7 @@ def register(app):
             'session_id': session_id,
         }), 200
 
-    @app.route('/upload-doc', methods=['POST'])
+    @app.route(f'{API_PREFIX}/upload-doc', methods=['POST'])
     def upload_doc():
         """Upload a PDF for the current browser session and ingest chunks into MongoDB."""
         session_id = (request.form.get('session_id') or '').strip()
@@ -172,7 +174,7 @@ def register(app):
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    @app.route('/session/reset', methods=['POST'])
+    @app.route(f'{API_PREFIX}/session/reset', methods=['POST'])
     def reset_session_docs():
         """Drop session-scoped on-demand document collection and forget in-memory session state."""
         data = request.get_json(silent=True) or {}

@@ -11,6 +11,12 @@ __pycache__/
 venv/
 env/
 
+# Node / Next.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+
 # OS-specific files
 .DS_Store
 Thumbs.db

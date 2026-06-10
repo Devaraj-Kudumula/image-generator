@@ -16,11 +16,13 @@ from services import image_service
 from services import vectorize_service
 from services import diagram_refine_service
 
+from routes.constants import API_PREFIX
+
 logger = logging.getLogger(__name__)
 
 
 def register(app):
-    @app.route('/generate-image', methods=['POST'])
+    @app.route(f'{API_PREFIX}/generate-image', methods=['POST'])
     def generate_image():
         """
         Generate an image using Google Gemini based on the provided prompt
@@ -72,7 +74,7 @@ def register(app):
             image_url = (
                 image_data_url
                 if config.IS_SERVERLESS and image_data_url
-                else f'{request.host_url}images/{filename}'
+                else f'{request.host_url.rstrip("/")}{API_PREFIX}/images/{filename}'
             )
 
             request_time = time.time() - request_start
@@ -107,7 +109,7 @@ def register(app):
             logger.info("=" * 50)
             return jsonify({'error': f'Error generating image: {str(e)}'}), 500
 
-    @app.route('/images/<filename>')
+    @app.route(f'{API_PREFIX}/images/<filename>')
     def serve_image(filename):
         """
         Serve generated images from in-memory store or, if not found, from static dir (local).
@@ -127,7 +129,7 @@ def register(app):
             )
         return jsonify({'error': 'Image not found'}), 404
 
-    @app.route('/vectorize-image', methods=['POST'])
+    @app.route(f'{API_PREFIX}/vectorize-image', methods=['POST'])
     def vectorize_image():
         """
         Convert a PNG image to SVG for canvas editing (vtracer).
@@ -216,7 +218,7 @@ def register(app):
                 'error': f'Error vectorizing image: {str(e)}'
             }), 500
 
-    @app.route('/refine-svg-codegen', methods=['POST'])
+    @app.route(f'{API_PREFIX}/refine-svg-codegen', methods=['POST'])
     def refine_svg_codegen():
         """
         Reconstruct a diagram via LLM-generated matplotlib code with visual feedback.
@@ -320,7 +322,7 @@ def register(app):
                 'error': f'Error during diagram reconstruction: {str(e)}'
             }), 500
 
-    @app.route('/edit-image', methods=['POST'])
+    @app.route(f'{API_PREFIX}/edit-image', methods=['POST'])
     def edit_image():
         """
         Edit an existing image based on user-requested changes using Google Gemini.
@@ -396,7 +398,7 @@ def register(app):
             image_url = (
                 edited_image_data_url
                 if config.IS_SERVERLESS and edited_image_data_url
-                else f'{request.host_url}images/{new_filename}'
+                else f'{request.host_url.rstrip("/")}{API_PREFIX}/images/{new_filename}'
             )
 
             request_time = time.time() - request_start
@@ -426,7 +428,7 @@ def register(app):
                 'error': f'Error editing image: {str(e)}'
             }), 500
 
-    @app.route('/get-accurate', methods=['POST'])
+    @app.route(f'{API_PREFIX}/get-accurate', methods=['POST'])
     def get_accurate():
         """
         Detect label/arrow flaws in an image with GPT-4o vision, then fix them
@@ -500,7 +502,7 @@ def register(app):
             image_url = (
                 final_data_url
                 if config.IS_SERVERLESS and final_data_url
-                else f'{request.host_url}images/{final_filename}'
+                else f'{request.host_url.rstrip("/")}{API_PREFIX}/images/{final_filename}'
             )
 
             request_time = time.time() - request_start
@@ -534,7 +536,7 @@ def register(app):
                 'error': f'Error during accuracy refinement: {str(e)}'
             }), 500
 
-    @app.route('/refined-prompt-image', methods=['POST'])
+    @app.route(f'{API_PREFIX}/refined-prompt-image', methods=['POST'])
     def refined_prompt_image():
         """
         Vision QA on the current image vs. prompt, GPT refines the full generation
@@ -603,7 +605,7 @@ def register(app):
             image_url = (
                 final_data_url
                 if config.IS_SERVERLESS and final_data_url
-                else f'{request.host_url}images/{final_filename}'
+                else f'{request.host_url.rstrip("/")}{API_PREFIX}/images/{final_filename}'
             )
 
             request_time = time.time() - request_start

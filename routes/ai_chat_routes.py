@@ -15,6 +15,8 @@ import config
 from app_state import state
 from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS
 
+from routes.constants import API_PREFIX
+
 logger = logging.getLogger(__name__)
 
 # Hard cap for client-supplied system override (chars) to avoid abuse / huge payloads.
@@ -155,7 +157,7 @@ def _build_messages_with_context_cap(
 
 
 def register(app):
-    @app.route("/ai-chat-themes", methods=["GET"])
+    @app.route(f"{API_PREFIX}/ai-chat-themes", methods=["GET"])
     def ai_chat_themes():
         """Theme ids, labels, and full system prompt text for the AI Chat page."""
         themes = {}
@@ -167,7 +169,7 @@ def register(app):
             themes[theme_id] = {"label": label, "prompt": prompt}
         return jsonify({"themes": themes}), 200
 
-    @app.route("/ai-chat-message", methods=["POST"])
+    @app.route(f"{API_PREFIX}/ai-chat-message", methods=["POST"])
     def ai_chat_message():
         """Generate a chat reply from the LLM (no document retrieval)."""
         request_start = time.time()

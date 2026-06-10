@@ -1,6 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/api/(generate-image|edit-image|get-accurate|refined-prompt-image|vectorize-image|refine-svg-codegen|ai-chat-themes|ai-chat-message|health|doc-names|session/reset|chat-with-docs|upload-doc)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/images/(.*)",
+      "destination": "/api/index"
+    }
   ]
 }
