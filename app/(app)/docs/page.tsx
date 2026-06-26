@@ -192,7 +192,7 @@ export default function DocsPage() {
               </Alert>
             )}
 
-            <ScrollArea className="max-h-64">
+            <div className="max-h-64 space-y-2 overflow-auto pb-1">
               <div className="flex flex-wrap gap-2">
                 <Badge
                   variant={noRagSelected ? "default" : "outline"}
@@ -208,6 +208,8 @@ export default function DocsPage() {
                 >
                   Include web search
                 </Badge>
+              </div>
+              <div className="flex flex-col items-start gap-2">
                 {docNames.map((name) => (
                   <Badge
                     key={name}
@@ -216,7 +218,8 @@ export default function DocsPage() {
                         ? "default"
                         : "outline"
                     }
-                    className={`cursor-pointer ${noRagSelected ? "opacity-50" : ""}`}
+                    title={name}
+                    className={`max-w-none cursor-pointer whitespace-nowrap ${noRagSelected ? "opacity-50" : ""}`}
                     onClick={() => !noRagSelected && toggleDoc(name)}
                   >
                     {name}
@@ -226,7 +229,7 @@ export default function DocsPage() {
                   <p className="text-xs text-muted-foreground">No documents loaded</p>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           </Card>
         </aside>
 
