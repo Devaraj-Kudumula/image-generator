@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -52,6 +52,22 @@ export default function ChatPage() {
   const [themes, setThemes] = useState<Record<string, ChatTheme>>(BUILT_IN_THEMES);
   const [themeError, setThemeError] = useState<string | null>(null);
   const [chatResetKey, setChatResetKey] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+
+  const startRename = (id: string, currentName: string) => {
+    setEditingId(id);
+    setEditingName(currentName);
+  };
+
+  const commitRename = () => {
+    if (editingId && editingName.trim()) {
+      renameSession(editingId, editingName.trim());
+    }
+    setEditingId(null);
+  };
+
+  const cancelRename = () => setEditingId(null);
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeSessionId) ?? sessions[0],
@@ -119,22 +135,70 @@ export default function ChatPage() {
           <ScrollArea className="flex-1 p-2">
             {sessions.map((session) => {
               const subtitle = getSessionSubtitle(session.uiMessages);
+              const isActive = session.id === activeSession?.id;
+              const isEditing = editingId === session.id;
               return (
-                <button
+                <div
                   key={session.id}
-                  type="button"
-                  onClick={() => setActiveSession(session.id)}
-                  className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm ${
-                    session.id === activeSession?.id
-                      ? "bg-sidebar-accent font-medium"
-                      : "text-muted-foreground hover:bg-sidebar-accent"
+                  className={`group mb-1 flex items-center gap-1 rounded-lg pr-1 ${
+                    isActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"
                   }`}
                 >
-                  <span className="block truncate">{session.name}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {subtitle}
-                  </span>
-                </button>
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename();
+                        if (e.key === "Escape") cancelRename();
+                      }}
+                      className="m-1 w-full rounded-md border bg-background px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setActiveSession(session.id)}
+                        className={`min-w-0 flex-1 rounded-lg px-3 py-2 text-left text-sm ${
+                          isActive ? "font-medium" : "text-muted-foreground"
+                        }`}
+                      >
+                        <span className="block truncate">{session.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {subtitle}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startRename(session.id, session.name);
+                        }}
+                        aria-label="Rename chat"
+                        title="Rename chat"
+                        className="shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-background hover:text-foreground group-hover:opacity-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Delete "${session.name}"?`)) {
+                            deleteSession(session.id);
+                          }
+                        }}
+                        aria-label="Delete chat"
+                        title="Delete chat"
+                        className="shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition hover:bg-background hover:text-destructive group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               );
             })}
           </ScrollArea>
@@ -192,26 +256,9 @@ export default function ChatPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        const name = prompt("Rename chat", activeSession.name);
-                        if (name?.trim()) renameSession(activeSession.id, name.trim());
-                      }}
-                    >
-                      Rename
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
                       onClick={handleClearChat}
                     >
                       Clear messages
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => deleteSession(activeSession.id)}
-                    >
-                      Delete
                     </Button>
                   </>
                 )}

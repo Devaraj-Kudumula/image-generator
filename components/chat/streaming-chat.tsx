@@ -3,19 +3,17 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Loader2, Send, Sparkles } from "lucide-react";
+import { ChevronDown, Copy, Loader2, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { api, CHAT_ASPECT_RATIOS } from "@/lib/api";
 import { buildHistoryForApi, themeKickoffUserMessage } from "@/lib/chat-theme-utils";
 import { stripThemeChatFiller } from "@/lib/chat-response-utils";
@@ -25,6 +23,22 @@ import { useChatStore, useGalleryStore } from "@/lib/store/generation-store";
 interface StreamingChatProps {
   sessionId: string;
   systemPromptOverride?: string;
+}
+
+/** Small proportional rectangle previewing an aspect ratio (e.g. "16:9"). */
+function RatioGlyph({ ratio }: { ratio: string }) {
+  const [w, h] = ratio.split(":").map(Number);
+  const max = 20;
+  const width = w >= h ? max : Math.round((w / h) * max);
+  const height = h >= w ? max : Math.round((h / w) * max);
+  return (
+    <span className="flex h-5 w-5 items-center justify-center">
+      <span
+        className="rounded-[2px] border-[1.5px] border-current"
+        style={{ width, height }}
+      />
+    </span>
+  );
 }
 
 function getMessageText(message: { parts: Array<{ type: string; text?: string }> }) {
@@ -322,34 +336,53 @@ export function StreamingChat({ sessionId, systemPromptOverride }: StreamingChat
         </Alert>
       )}
 
-      <div className="space-y-3 border-t px-4 py-3">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
-          <label htmlFor="chat-aspect-ratio" className="text-xs text-muted-foreground">
-            Aspect ratio
-          </label>
-          <Select
-            value={chatAspectRatio}
-            onValueChange={(value) =>
-              setChatAspectRatio(value as typeof chatAspectRatio)
-            }
-          >
-            <SelectTrigger id="chat-aspect-ratio" className="h-8 w-[200px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CHAT_ASPECT_RATIOS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span className="text-xs text-muted-foreground">
-            Used for generation, edits, accurate &amp; refined-prompt passes.
-          </span>
-        </div>
+      <div className="border-t px-4 py-3">
+        <form className="mx-auto flex max-w-3xl items-end gap-2" onSubmit={handleSubmit}>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                title="Aspect ratio"
+                className="flex h-[52px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+              >
+                <RatioGlyph ratio={chatAspectRatio} />
+                <span className="font-medium text-foreground">{chatAspectRatio}</span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-64 p-2">
+              <p className="px-1 pb-2 text-[11px] text-muted-foreground">
+                Used for generation, edits, accurate &amp; refined-prompt passes.
+              </p>
+              <div className="grid grid-cols-2 gap-1">
+                {CHAT_ASPECT_RATIOS.map((option) => {
+                  const active = option.value === chatAspectRatio;
+                  const name = option.label.split(" — ")[1] ?? "";
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setChatAspectRatio(option.value)}
+                      aria-pressed={active}
+                      title={option.label}
+                      className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition ${
+                        active
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      }`}
+                    >
+                      <RatioGlyph ratio={option.value} />
+                      <span className="flex min-w-0 flex-col items-start leading-tight">
+                        <span className="font-medium">{option.value}</span>
+                        <span className="truncate text-[10px] opacity-70">{name}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
 
-        <form className="mx-auto flex max-w-3xl gap-2" onSubmit={handleSubmit}>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
