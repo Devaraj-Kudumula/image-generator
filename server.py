@@ -13,8 +13,9 @@ from flask_cors import CORS
 
 import config
 from app_state import state
-from clients import init_conversation_llm, init_gemini
-from routes import main_routes, image_routes, ai_chat_routes
+from clients import init_conversation_llm, init_gemini, init_rag_llm
+from routes import main_routes, image_routes, ai_chat_routes, rag_routes
+from db import init_mongo
 
 # Configure logging
 logging.basicConfig(
@@ -43,7 +44,7 @@ if config.GOOGLE_API_KEY:
 else:
     logger.error("Google API key not found!")
 
-# Initialize conversation LLM and Gemini (RAG/MongoDB disabled on Vercel slim deploy)
+# Initialize conversation LLM and Gemini; enable RAG when MongoDB is configured
 state.llm = None
 state.conversation_llm = init_conversation_llm()
 state.openai_api_key = config.OPENAI_API_KEY
@@ -54,6 +55,23 @@ state.retriever = None
 state.known_doc_names = []
 state.embedding_model = None
 
+if config.MONGODB_URI and config.OPENAI_API_KEY:
+    try:
+        (
+            state.mongo_client,
+            state.vectorstore,
+            state.retriever,
+            state.known_doc_names,
+            state.embedding_model,
+        ) = init_mongo()
+        if state.mongo_client is not None:
+            state.llm = init_rag_llm()
+            logger.info("RAG stack initialized (%d base documents)", len(state.known_doc_names))
+    except Exception as rag_error:
+        logger.warning("RAG initialization failed: %s", rag_error)
+else:
+    logger.info("RAG disabled (MONGODB_URI or OPENAI_API_KEY not configured)")
+
 logger.info("Initializing Gemini client...")
 state.gemini_client = init_gemini()
 
@@ -61,7 +79,12 @@ state.gemini_client = init_gemini()
 main_routes.register(app)
 image_routes.register(app)
 ai_chat_routes.register(app)
-logger.info("Routes registered")
+if state.llm is not None:
+    rag_routes.register(app)
+    logger.info("RAG routes registered")
+else:
+    main_routes.register_rag_stubs(app)
+    logger.info("RAG stubs registered (MongoDB/LLM unavailable)")
 
 if __name__ == '__main__':
     logger.info("=" * 60)

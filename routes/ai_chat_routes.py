@@ -13,7 +13,9 @@ from flask import request, jsonify
 
 import config
 from app_state import state
-from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS
+from prompts import AI_CHAT_SYSTEM, AI_CHAT_THEME_PROMPTS, build_theme_system_prompt
+
+from routes.constants import API_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +157,7 @@ def _build_messages_with_context_cap(
 
 
 def register(app):
-    @app.route("/ai-chat-themes", methods=["GET"])
+    @app.route(f"{API_PREFIX}/ai-chat-themes", methods=["GET"])
     def ai_chat_themes():
         """Theme ids, labels, and full system prompt text for the AI Chat page."""
         themes = {}
@@ -167,7 +169,7 @@ def register(app):
             themes[theme_id] = {"label": label, "prompt": prompt}
         return jsonify({"themes": themes}), 200
 
-    @app.route("/ai-chat-message", methods=["POST"])
+    @app.route(f"{API_PREFIX}/ai-chat-message", methods=["POST"])
     def ai_chat_message():
         """Generate a chat reply from the LLM (no document retrieval)."""
         request_start = time.time()
@@ -188,7 +190,7 @@ def register(app):
                                 f"system_prompt_override exceeds {_AI_CHAT_SYSTEM_OVERRIDE_MAX_CHARS} characters"
                             ),
                         }), 400
-                    system_text = stripped
+                    system_text = build_theme_system_prompt(stripped)
 
             if not user_message:
                 return jsonify({"error": "user_message is required"}), 400

@@ -80,6 +80,26 @@ AI_CHAT_SYSTEM = (
     "exchanges and expansive when they ask for depth or \"explain in detail\"."
 )
 
+# Appended when a theme override replaces AI_CHAT_SYSTEM (prompt-engineer mode).
+AI_CHAT_THEME_REPLY_RULES = (
+    "\n\nRESPONSE RULES (CRITICAL):\n"
+    "When the user gives a topic, condition, organ, pathology, or imaging study, your entire reply "
+    "must be ONLY the image-generation prompt in the OUTPUT FORMAT specified above.\n"
+    "Do not add preamble, meta-commentary, closing remarks, follow-up questions, or offers of "
+    "further help (e.g. never ask if they want help with something else).\n"
+    "The reply is sent directly to an image generator — any conversational text breaks the pipeline."
+)
+
+
+def build_theme_system_prompt(theme_prompt: str) -> str:
+    base = (theme_prompt or "").strip()
+    if not base:
+        return base
+    combined = base + AI_CHAT_THEME_REPLY_RULES
+    if len(combined) > 12000:
+        return combined[:12000]
+    return combined
+
 
 # -----------------------------------------------------------------------------
 # AI Chat — optional conversation themes (AI Chat page “Theme” control)

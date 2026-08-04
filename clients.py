@@ -33,6 +33,22 @@ def init_conversation_llm() -> Optional[ChatOpenAI]:
         return None
 
 
+def init_rag_llm() -> Optional[ChatOpenAI]:
+    """OpenAI chat model for RAG document Q&A."""
+    try:
+        llm = ChatOpenAI(
+            model=config.OPENAI_RAG_MODEL,
+            temperature=config.OPENAI_RAG_TEMPERATURE,
+            max_tokens=config.OPENAI_RAG_MAX_OUTPUT,
+            api_key=config.OPENAI_API_KEY,
+        )
+        logger.info("RAG LLM initialized (model=%s)", config.OPENAI_RAG_MODEL)
+        return llm
+    except Exception as e:
+        logger.error("Failed to initialize RAG LLM: %s", e)
+        return None
+
+
 def init_gemini() -> Any:
     """Initialize Google Gemini client. Returns None if no API key or on failure."""
     try:

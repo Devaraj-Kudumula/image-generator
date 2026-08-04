@@ -1,102 +1,102 @@
-## AI Medical Image Generator
+## AI Medical Image Generator (Figure Studio)
 
-Turn clinical ideas into exam-ready medical illustrations. The Studio UI sends prompts directly to Google Gemini for generation and editing; Doc chat uses an LLM with RAG for Q&A over your PDFs.
-
----
-
-## Quick start
-
-1. **Clone and enter the project**
-   ```bash
-   git clone <your-repo-url>
-   cd image-generator
-   ```
-
-2. **Install dependencies**
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate   # Windows
-   # source .venv/bin/activate   # macOS/Linux
-   pip install -r requirements.txt
-   ```
-
-3. **Configure environment**  
-   Create a `.env` file in the project root:
-   ```bash
-   OPENAI_API_KEY=your-openai-api-key
-   GOOGLE_GENERATIVE_AI_API_KEY=your-gemini-api-key
-   # Optional for RAG: MONGODB_URI=your-mongodb-uri
-   # Optional: SERPER_API_KEY=your-serper-api-key
-   ```
-   Do not commit `.env`; it should be in `.gitignore`.
-
-4. **Run the app**
-   ```bash
-   python server.py
-   ```
-
-5. **Open in browser**  
-   `http://localhost:5001`  
-   (Port can be overridden with the `PORT` environment variable.)
+Production-grade SaaS frontend for generating publication-ready medical and scientific illustrations. Built with **Next.js 15**, **React 19**, **TypeScript**, and **shadcn/ui**. Python **Flask** powers image generation, editing, vectorization, and RAG document Q&A.
 
 ---
 
-## Overall application flow
+## Quick start (local development)
 
-- **Frontend (`index.html`, `docs_chat.html`, `upload_edit.html`, `static/app.js`, `static/styles.css`)**
-  - **Studio** (`/`): user writes or pastes an image prompt and calls `/generate-image`; history, `/edit-image`, and `/get-accurate` support iteration.
-  - **Doc chat** (`/docs-chat`): user selects documents and asks questions; the frontend calls `/chat-with-docs` (RAG over MongoDB + session uploads).
-  - **Upload & edit** (`/upload-edit`): user uploads an image and describes edits via `/edit-image`.
+### 1. Install dependencies
 
-- **Backend (`server.py` + routes)**
-  - `server.py` loads config, initializes LLM, Gemini, MongoDB vectorstore, Serper, and shared `AppState`, then registers routes.
-  - `routes/main_routes.py` serves HTML pages and exposes `/health`.
-  - `routes/rag_routes.py` exposes:
-    - `/chat-with-docs` – answers from retrieved chunks using the OpenAI chat model.
-    - `/doc-names` – lists library and session document names.
-    - `/upload-doc`, `/session/reset` – session-scoped PDF ingest and cleanup.
-  - `routes/image_routes.py` exposes:
-    - `/generate-image` – sends the prompt to Gemini and stores image bytes (in-memory + optional disk).
-    - `/images/<filename>` – serves generated images from memory or `static/images/`.
-    - `/edit-image` – loads an existing image (from filename or data URL), applies Gemini edits, and stores the new version.
+```bash
+# Frontend
+npm install
 
-- **Data & RAG**
-  - `db.init_mongo()` connects to MongoDB Atlas, configures `MongoDBAtlasVectorSearch`, builds a retriever, and loads known `doc_name`s.
-  - `services.rag_service` normalizes source selection, runs vector + web retrieval, and builds the combined context string for doc chat and retrieval.
-  - `services.image_service` wraps Gemini calls and image storage; `backend/image_utils.py` handles data URL and PNG extraction.
+# Backend
+python -m venv .venv
+source .venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
+# Optional local-only features (OpenCV, Tesseract, matplotlib):
+pip install -r requirements-local.txt
+```
 
----
+### 2. Configure environment
 
-## Modules and files (brief)
+Create `.env` in the project root:
 
-- **`server.py`**: Application entry point; initializes config, logging, `AppState`, LLM, Gemini, Serper, MongoDB/vectorstore, and registers all routes.
-- **`config.py`**: Loads environment variables; defines API keys, MongoDB settings, RAG options, Serper key, image store (`IMAGE_STORE`, `IMAGES_DIR`, `IS_SERVERLESS`).
-- **`app_state.py`**: Defines `AppState` singleton holding runtime clients (LLM, Gemini, MongoDB, vectorstore, retriever, Serper, known doc names).
-- **`clients.py`**: Creates OpenAI `ChatOpenAI` client, Google Gemini client (`genai.Client`), and Google Serper wrapper.
-- **`db.py`**: Connects to MongoDB, initializes `MongoDBAtlasVectorSearch` and retriever, fetches distinct `doc_name`s.
-- **`backend/image_utils.py`**: Utility helpers for converting image bytes ↔ data URLs and extracting PNG bytes from Gemini responses.
+```bash
+OPENAI_API_KEY=your-openai-api-key
+GOOGLE_GENERATIVE_AI_API_KEY=your-gemini-api-key
+# Optional RAG:
+MONGODB_URI=your-mongodb-uri
+SERPER_API_KEY=your-serper-api-key
+```
 
-- **`routes/main_routes.py`**: `/` (serves `index.html`) and `/health` (reports config/RAG readiness).
-- **`routes/rag_routes.py`**: `/chat-with-docs`, `/doc-names`, `/upload-doc`, `/session/reset`.
-- **`routes/image_routes.py`**: `/generate-image`, `/edit-image`, `/images/<filename>` for image generation, editing, and serving.
-  It also exposes `/get-accurate`, which runs a multi-step accuracy refinement loop:
-  GPT-4o vision first detects labeling/arrow flaws in an image, then Gemini applies up to five targeted correction passes.
+### 3. Run both servers
 
-- **`services/rag_service.py`**: Implements retrieval logic (doc name validation, NO RAG / WEB_RETRIEVAL flags, Serper + web scraping, vector search, context assembly).
-- **`services/image_service.py`**: Implements Gemini-based image generation and editing, the `/get-accurate` iterative flaw-detection-and-fix pipeline, plus in-memory/disk storage and retrieval of image bytes.
+```bash
+# Terminal 1 — Flask API (port 5002)
+python server.py
 
-- **`index.html`**, **`docs_chat.html`**, **`upload_edit.html`**: Studio, document Q&A, and upload-to-edit flows.
-- **`static/app.js`**: Shared frontend logic (theme, chat sessions, doc selection, `/chat-with-docs`, `/generate-image`, `/edit-image`, `/get-accurate`, uploads).
-- **`static/styles.css`**: Modern light/dark theme styling, layout, prompt/editor sections, conversation history, RAG panel, and image preview/fullscreen UI.
-- **`static/images/`**: Optional directory where generated images are persisted when not running in a serverless environment.
+# Terminal 2 — Next.js frontend (port 3000)
+npm run dev
+```
+
+Open **http://localhost:3000**
+
+Next.js proxies `/api/*` requests to Flask at `http://127.0.0.1:5002` via `next.config.ts` rewrites.
 
 ---
 
-## Environment
+## Architecture
 
-- **Required**: `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`
-- **Optional (RAG)**: `MONGODB_URI` (falls back to direct LLM prompts if unavailable)
-- **Optional (web retrieval)**: `SERPER_API_KEY` (used for Google web search via Serper)
-- **Optional**: `PORT` (default `5001`)
+```
+Browser → Next.js App Router (pages + /api/chat streaming)
+       → /api/generate-image, /api/edit-image, … → Flask (Python)
+       → Gemini (images) + OpenAI (chat, vision QA, RAG)
+```
 
-Images are always stored in-memory via `IMAGE_STORE`, and additionally written to `static/images/` when the filesystem is writable and the app is not running serverless.
+### Frontend routes
+
+| Route | Description |
+|-------|-------------|
+| `/` | Studio — prompt-based generation (FigureLabs-style UI) |
+| `/edit` | Upload & edit workspace |
+| `/gallery` | Image history |
+| `/chat` | AI Chat with streaming (Vercel AI SDK) |
+| `/docs` | Document Q&A (RAG) |
+| `/settings` | Theme, defaults, system status |
+
+### Backend API (Flask, prefixed with `/api`)
+
+- `POST /api/generate-image` — Gemini text→image
+- `POST /api/edit-image` — Gemini image editing
+- `POST /api/get-accurate` — Vision QA + iterative fixes
+- `POST /api/refined-prompt-image` — Vision QA + full prompt regen
+- `POST /api/vectorize-image` — PNG→SVG for canvas editor
+- `GET/POST /api/ai-chat-*` — Themed medical chat (Flask fallback)
+- `POST /api/chat-with-docs` — RAG document Q&A (when MongoDB configured)
+
+---
+
+## Deploy on Vercel
+
+1. Connect the repo to Vercel
+2. Set environment variables (`OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, optional `MONGODB_URI`)
+3. Deploy — Next.js builds the frontend; Python runs at `api/index.py`
+
+`vercel.json` routes Flask API paths to the Python serverless function.
+
+---
+
+## Tech stack
+
+- **Frontend:** Next.js 15, React 19, TypeScript, Tailwind CSS v4, shadcn/ui, Zustand, TanStack Query, Vercel AI SDK, Fabric.js
+- **Backend:** Python 3.12, Flask, Google Gemini, OpenAI, MongoDB Atlas (RAG)
+- **Deploy:** Vercel (Next.js + Python serverless)
+
+---
+
+## Future roadmap
+
+See `lib/future/platform.ts` for planned integrations: Clerk auth, Vercel Blob storage, Stripe subscriptions, team workspaces, real-time job tracking.
