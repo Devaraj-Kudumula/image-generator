@@ -1,11 +1,42 @@
+# Flask backend dependencies. Versions pinned from the working local venv.
+# Deployed to a long-running host (see render.yaml / Procfile), not Vercel —
+# the Next.js app reaches this service through FLASK_API_URL.
+
+# Web server
 Flask==2.3.3
 flask-cors==4.0.0
+gunicorn==21.2.0
 requests==2.32.5
-openai==2.21.0
-tiktoken>=0.7.0
-langchain-openai==1.1.0
-google-genai==1.64.0
-pillow==12.1.1
 python-dotenv==1.0.0
+
+# LLM clients
+openai==2.21.0
+tiktoken==0.12.0
+google-genai==1.64.0
+
+# RAG stack
+langchain==1.2.10
+langchain-core==1.2.16
+langchain-classic==1.0.1
+langchain-community==0.4.1
+langchain-text-splitters==1.1.1
+langchain-openai==1.1.0
+langchain-mongodb==0.11.0
+pymongo==4.16.0
+dnspython==2.8.0
+certifi==2024.12.14
+pypdf==6.9.1
+
+# Image / vector pipeline
+pillow==12.1.1
 vtracer==0.6.15
 scour==0.38.2
+numpy==2.4.2
+opencv-python-headless==4.10.0.84
+
+# Required by the SVG code-gen refine path (services/code_exec.py runs
+# user matplotlib code in a subprocess).
+matplotlib==3.10.9
+
+# Omitted on purpose: pytesseract needs the tesseract system binary.
+# services/ocr_text_service.py no-ops safely when it is absent.

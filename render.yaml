@@ -1,0 +1,29 @@
+# Render blueprint for the Flask API backend.
+#
+# The Next.js frontend stays on Vercel and calls this service through the
+# FLASK_API_URL environment variable. Deploy this first, copy the resulting
+# https://<name>.onrender.com URL, then set FLASK_API_URL in Vercel.
+services:
+  - type: web
+    name: image-generator-api
+    runtime: python
+    plan: starter # free tier cold-starts after 15 min idle; RAG init takes ~2s on wake
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 300
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      # Secrets: set these in the Render dashboard. sync:false keeps them out
+      # of source control — the same values you already have in Vercel.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: ONDEMAND_MONGODB_URI
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
