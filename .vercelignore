@@ -9,7 +9,11 @@ models/superres/*.pb
 .git/
 
 # The Flask backend runs on its own host (see render.yaml); Vercel only builds
-# the Next.js app. Excluding api/ stops Vercel from producing a Python function
-# that can never serve /api/* — those paths belong to Next's app/api routes.
-api/
+# the Next.js app. Excluding the root api/ stops Vercel from producing a Python
+# function that can never serve /api/* — those paths belong to Next's app/api
+# routes.
+#
+# The leading slash is required. Unanchored, "api/" matches a directory named
+# api at any depth, which also excludes app/api/ and 404s every Next API route.
+/api/
 
