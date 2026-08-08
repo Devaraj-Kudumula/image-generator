@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "dev:flask": "python server.py",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node init && next dev --turbopack",
+    "dev:flask": "node init && python server.py",
+    "build": "node init && next build",
+    "start": "node init && next start",
     "lint": "next lint"
   },
   "dependencies": {
