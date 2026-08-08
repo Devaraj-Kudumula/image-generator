@@ -1,5 +1,4 @@
 # Environment and secrets
-.env
 
 # Python cache
 __pycache__/
@@ -24,3 +23,4 @@ Thumbs.db
 /generated_images
 /static/images/
 /public/
+config.bat

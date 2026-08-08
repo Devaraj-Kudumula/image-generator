@@ -188,7 +188,8 @@ export default function DocsPage() {
 
             {disabled && (
               <Alert className="text-xs">
-                RAG is disabled. Configure MONGODB_URI and OPENAI_API_KEY to enable document chat.
+                Document chat is unavailable — the backend API could not be reached.
+                Check that the Flask service is running and that FLASK_API_URL points to it.
               </Alert>
             )}
 
